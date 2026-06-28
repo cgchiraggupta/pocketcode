@@ -35,7 +35,14 @@ export async function activate(ctx: vscode.ExtensionContext) {
     vscode.commands.registerCommand('remotedev.disconnectAll', () => { const n = auth.revokeAll(); vscode.window.showInformationMessage(`Disconnected ${n} device(s).`); updateStatus(0); }),
     vscode.commands.registerCommand('remotedev.showQR', () => showQR(lastQR)),
     vscode.commands.registerCommand('remotedev.snapshot', async () => { if (!server) return; const s = await server.snaps.create(); vscode.window.showInformationMessage(`Snapshot ${s.id} created`); }),
-    vscode.commands.registerCommand('remotedev.revert', async () => { if (!server) return; vscode.window.showWarningMessage('Revert last snapshot?', 'Revert').then((c) => c === 'Revert' && server!.snaps.revert((await server!.snaps['list'].slice(-1)[0])?.id ?? '').catch(() => {})); }),
+    vscode.commands.registerCommand('remotedev.revert', async () => {
+      if (!server) return;
+      const list: any[] = (server.snaps as any).list ?? [];
+      const last = list[list.length - 1];
+      if (!last) { vscode.window.showInformationMessage('No snapshot to revert.'); return; }
+      const choice = await vscode.window.showWarningMessage(`Revert snapshot ${last.id}?`, 'Revert');
+      if (choice === 'Revert') { await server.snaps.revert(last.id).catch((e) => vscode.window.showErrorMessage(String(e))); }
+    }),
   );
 
   auth.on('device.bound', (d) => { updateStatus(auth.connectedDeviceCount()); vscode.window.showInformationMessage(`Phone paired: ${d.id.slice(0, 6)}`); });

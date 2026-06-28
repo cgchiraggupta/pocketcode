@@ -1,8 +1,9 @@
 package com.remotedev.pocketcode.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -24,7 +25,7 @@ fun Root() {
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(if (machines.isEmpty()) "PocketCode" else machines.first().name) },
-            actions = { IconButton(onClick = { tab = 5 }) { Icon(Icons.Filled.Devices, null) } },
+            actions = { TextButton(onClick = { tab = 5 }) { Text("Machines") } },
         )
     }, bottomBar = {
         NavigationBar {

@@ -62,13 +62,16 @@ export class FilesManager {
         const abs = path.join(dir, e.name);
         const childRel = path.posix.join(rel, e.name);
         if (e.isDirectory()) await walk(abs, childRel);
-        else if (e.isFile() && e.size < 1_000_000) {
+        else if (e.isFile()) {
+          const st = await fs.stat(abs).catch(() => null);
+          if (st && st.size < 1_000_000) {
           const text = await fs.readFile(abs, 'utf8').catch(() => '');
           const lines = text.split('\n');
           for (let i = 0; i < lines.length; i++) {
             const match = re ? re.test(lines[i]) : lines[i].toLowerCase().includes(needle);
             if (match) out.push({ path: childRel, line: i + 1, text: lines[i].slice(0, 400) });
             if (out.length >= max) return;
+          }
           }
         }
       }

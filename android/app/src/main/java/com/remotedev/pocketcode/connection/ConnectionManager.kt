@@ -25,7 +25,7 @@ sealed class ConnState {
     object Disconnected : ConnState()
 }
 
-class ConnectionManager(ctx: Context) {
+class ConnectionManager(private val ctx: Context) {
     val json = Json { ignoreUnknownKeys = true; classDiscriminator = "t" }
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow<ConnState>(ConnState.Idle)
@@ -42,7 +42,7 @@ class ConnectionManager(ctx: Context) {
         val req = Request.Builder()
             .url(machine.url)
             .addHeader("x-device-id", deviceId())
-            .addHeader("x-device-fingerprint", androidId(ctx))
+            .addHeader("x-device-fingerprint", androidId())
             .build()
         val ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) { _state.value = ConnState.Connected(machine.name, ws) }
@@ -72,6 +72,6 @@ class ConnectionManager(ctx: Context) {
         if (id == null) { id = UUID.randomUUID().toString(); prefs.edit().putString("id", id).apply() }
         return id
     }
-    private fun androidId(ctx: Context): String =
+    private fun androidId(): String =
         android.provider.Settings.Secure.getString(ctx.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "unknown"
 }

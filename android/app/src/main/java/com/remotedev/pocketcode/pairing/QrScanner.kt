@@ -42,6 +42,7 @@ fun QrScannerScreen(onPaired: (PairingQR) -> Unit, onManual: () -> Unit) {
             Text("Camera permission required.")
             Button(onClick = { launcher.launch(Manifest.permission.CAMERA) }) { Text("Grant") }
         } else {
+            val lifecycleOwner = LocalLifecycleOwner.current
             AndroidView(factory = { c ->
                 val view = PreviewView(c)
                 val providerFuture = ProcessCameraProvider.getInstance(c)
@@ -54,7 +55,7 @@ fun QrScannerScreen(onPaired: (PairingQR) -> Unit, onManual: () -> Unit) {
                         })
                     }
                     provider.unbindAll()
-                    provider.bindToLifecycle(LocalLifecycleOwner.current, androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA, preview, analyzer)
+                    provider.bindToLifecycle(lifecycleOwner, androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA, preview, analyzer)
                 }, ContextCompat.getMainExecutor(c))
                 view
             }, modifier = Modifier.weight(1f).fillMaxWidth())

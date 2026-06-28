@@ -9,9 +9,21 @@
     "vscode": "^1.85.0",
     "node": ">=18"
   },
-  "categories": ["Other"],
-  "keywords": ["remote", "mobile", "android", "tunnel", "pairing", "qr"],
-  "activationEvents": ["onCommand:remotedev.start", "onCommand:remotedev.stop"],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "remote",
+    "mobile",
+    "android",
+    "tunnel",
+    "pairing",
+    "qr"
+  ],
+  "activationEvents": [
+    "onCommand:remotedev.start",
+    "onCommand:remotedev.stop"
+  ],
   "main": "./out/extension.js",
   "icon": "media/icon.png",
   "repository": {
@@ -19,35 +31,70 @@
     "url": "https://github.com/cgchiraggupta/pocketcode.git",
     "directory": "extension"
   },
-  "bugs": { "url": "https://github.com/cgchiraggupta/pocketcode/issues" },
+  "bugs": {
+    "url": "https://github.com/cgchiraggupta/pocketcode/issues"
+  },
   "contributes": {
     "commands": [
-      { "command": "remotedev.start", "title": "RemoteDev: Start Mobile Session", "category": "RemoteDev" },
-      { "command": "remotedev.stop", "title": "RemoteDev: Stop Session", "category": "RemoteDev" },
-      { "command": "remotedev.disconnectAll", "title": "RemoteDev: Disconnect All Devices", "category": "RemoteDev" },
-      { "command": "remotedev.showQR", "title": "RemoteDev: Show Pairing QR", "category": "RemoteDev" },
-      { "command": "remotedev.snapshot", "title": "RemoteDev: Snapshot (before agent run)", "category": "RemoteDev" },
-      { "command": "remotedev.revert", "title": "RemoteDev: Revert Last Snapshot", "category": "RemoteDev" }
+      {
+        "command": "remotedev.start",
+        "title": "RemoteDev: Start Mobile Session",
+        "category": "RemoteDev"
+      },
+      {
+        "command": "remotedev.stop",
+        "title": "RemoteDev: Stop Session",
+        "category": "RemoteDev"
+      },
+      {
+        "command": "remotedev.disconnectAll",
+        "title": "RemoteDev: Disconnect All Devices",
+        "category": "RemoteDev"
+      },
+      {
+        "command": "remotedev.showQR",
+        "title": "RemoteDev: Show Pairing QR",
+        "category": "RemoteDev"
+      },
+      {
+        "command": "remotedev.snapshot",
+        "title": "RemoteDev: Snapshot (before agent run)",
+        "category": "RemoteDev"
+      },
+      {
+        "command": "remotedev.revert",
+        "title": "RemoteDev: Revert Last Snapshot",
+        "category": "RemoteDev"
+      }
     ],
     "configuration": {
       "title": "RemoteDev",
       "properties": {
         "remoteDev.tokenExpiryMinutes": {
-          "type": "number", "default": 1440, "minimum": 5,
+          "type": "number",
+          "default": 1440,
+          "minimum": 5,
           "description": "Inactivity expiry for pairing tokens (minutes)."
         },
         "remoteDev.preferredTunnel": {
-          "type": "string", "enum": ["auto", "tailscale", "devtunnel"],
+          "type": "string",
+          "enum": [
+            "auto",
+            "tailscale",
+            "devtunnel"
+          ],
           "default": "auto"
         },
         "remoteDev.localPort": {
-          "type": "number", "default": 0,
+          "type": "number",
+          "default": 0,
           "description": "0 = random ephemeral port."
         },
         "remoteDev.maxTerminals": {
-          "type": "number", "default": 16
+          "type": "number",
+          "default": 16
         }
-    }
+      }
     }
   },
   "scripts": {
@@ -60,17 +107,17 @@
   },
   "dependencies": {
     "node-pty": "^1.0.0",
-    "ws": "^8.16.0",
     "qrcode": "^1.5.3",
-    "simple-git": "^3.22.0"
+    "simple-git": "^3.22.0",
+    "ws": "^8.16.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "@types/node-pty": "^1.0.0",
-    "@types/ws": "^8.5.10",
     "@types/qrcode": "^1.5.5",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
     "@vscode/vsce": "^2.22.0",
-    "typescript": "^5.3.0",
-    "eslint": "^8.55.0"
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.0"
   }
 }
