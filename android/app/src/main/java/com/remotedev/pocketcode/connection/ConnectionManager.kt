@@ -9,13 +9,16 @@ import com.remotedev.pocketcode.agent.AgentEvent
 import com.remotedev.pocketcode.terminal.Tab
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.*
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -27,6 +30,7 @@ import java.util.concurrent.TimeUnit
 sealed class ConnState {
     object Idle : ConnState()
     data class Connecting(val machine: String) : ConnState()
+    data class Reconnecting(val machine: String, val attempt: Int) : ConnState()
     data class Connected(val machine: String, val ws: WebSocket) : ConnState()
     data class Error(val reason: String) : ConnState()
     object Disconnected : ConnState()
@@ -55,6 +59,12 @@ class ConnectionManager(private val ctx: Context) {
     val terminalTabs = MutableStateFlow<List<Tab>>(emptyList())
     val devServers = MutableStateFlow<List<String>>(emptyList())
     val workspaces = MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    val lastConnectUrl = MutableStateFlow<String?>(null)
+
+    private var lastMachine: PairedMachine? = null
+    private var userDisconnected = false
+    private var reconnectJob: Job? = null
+    private var activeWs: WebSocket? = null
 
     init {
         scope.launch {
@@ -156,19 +166,34 @@ class ConnectionManager(private val ctx: Context) {
     }
 
     fun connect(machine: PairedMachine) {
-        _state.value = ConnState.Connecting(machine.name)
-        // ponytail: token is in the URL query string (per extension/src/server/index.ts:40-41).
-        val wsUrl = if (machine.token.isNotEmpty() && !machine.url.contains("token=")) {
-            val sep = if (machine.url.contains("?")) "&" else "?"
-            "$machine.url${sep}token=${machine.token}"
-        } else machine.url
+        userDisconnected = false
+        lastMachine = machine
+        reconnectJob?.cancel()
+        openWebSocket(machine)
+    }
+
+    private fun openWebSocket(machine: PairedMachine, attempt: Int = 0) {
+        activeWs?.close(1000, "reconnect")
+        _state.value = if (attempt > 0) {
+            ConnState.Reconnecting(machine.name, attempt)
+        } else {
+            ConnState.Connecting(machine.name)
+        }
+        val wsUrl = buildWsUrl(machine)
+        lastConnectUrl.value = wsUrl.replace(Regex("token=[^&]+"), "token=…")
+        val httpUrl = wsUrl.toHttpUrlOrNull()
+        if (httpUrl == null || machine.url.contains("PairedMachine(")) {
+            _state.value = ConnState.Error("Invalid pairing URL — scan a fresh QR code")
+            return
+        }
         val req = Request.Builder()
-            .url(wsUrl)
+            .url(httpUrl)
             .addHeader("x-device-id", deviceId())
             .addHeader("x-device-fingerprint", androidId())
             .build()
-        val ws = client.newWebSocket(req, object : WebSocketListener() {
+        client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
+                activeWs = ws
                 _state.value = ConnState.Connected(machine.name, ws)
                 send("""{"t":"fs.tree"}""")
                 send("""{"t":"git.status"}""")
@@ -181,10 +206,40 @@ class ConnectionManager(private val ctx: Context) {
                     .onSuccess { inbound.tryEmit(it) }
             }
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                _state.value = ConnState.Error(t.message ?: "failure")
+                activeWs = null
+                if (userDisconnected) {
+                    _state.value = ConnState.Idle
+                    return
+                }
+                _state.value = ConnState.Error(t.message ?: "connection failed")
+                scheduleReconnect(machine, attempt)
             }
-            override fun onClosing(ws: WebSocket, code: Int, reason: String) { _state.value = ConnState.Disconnected }
+            override fun onClosing(ws: WebSocket, code: Int, reason: String) {
+                activeWs = null
+                if (userDisconnected || code == 1000) {
+                    _state.value = ConnState.Disconnected
+                    return
+                }
+                _state.value = ConnState.Disconnected
+                scheduleReconnect(machine, attempt)
+            }
+            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                activeWs = null
+            }
         })
+    }
+
+    private fun scheduleReconnect(machine: PairedMachine, attempt: Int) {
+        if (userDisconnected) return
+        reconnectJob?.cancel()
+        val nextAttempt = attempt + 1
+        val delayMs = minOf(30_000L, 1_000L * (1 shl minOf(nextAttempt - 1, 4)))
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            if (!userDisconnected && lastMachine?.id == machine.id) {
+                openWebSocket(machine, nextAttempt)
+            }
+        }
     }
 
     fun send(jsonMsg: String) {
@@ -193,8 +248,26 @@ class ConnectionManager(private val ctx: Context) {
     }
 
     fun disconnect() {
+        userDisconnected = true
+        reconnectJob?.cancel()
         val s = _state.value
-        if (s is ConnState.Connected) { s.ws.close(1000, "user"); _state.value = ConnState.Idle }
+        if (s is ConnState.Connected) {
+            s.ws.close(1000, "user")
+        }
+        activeWs?.close(1000, "user")
+        activeWs = null
+        _state.value = ConnState.Idle
+    }
+
+    private fun buildWsUrl(machine: PairedMachine): String {
+        val base = machine.url.trim()
+        if (base.contains("token=")) return base
+        val parsed = base.toHttpUrlOrNull() ?: return base
+        if (machine.token.isEmpty()) return parsed.toString()
+        return parsed.newBuilder()
+            .addQueryParameter("token", machine.token)
+            .build()
+            .toString()
     }
 
     private fun deviceId(): String {

@@ -5,7 +5,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -14,6 +17,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -122,6 +126,19 @@ fun TerminalScreen(
     onInput: (String) -> Unit
 ) {
     val cur = tabs.getOrNull(activeTab)
+    var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(cur?.lines?.size) {
+        val lineCount = cur?.lines?.size ?: 0
+        if (lineCount > 0) listState.animateScrollToItem(lineCount - 1)
+    }
+
+    fun submitInput() {
+        if (input.isEmpty()) return
+        onInput(input + "\r")
+        input = ""
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
@@ -133,10 +150,32 @@ fun TerminalScreen(
         }
 
         if (cur != null) {
-            LazyColumn(Modifier.weight(1f).background(Color(0xFF0E0E10)).padding(8.dp)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).background(Color(0xFF0E0E10)).padding(8.dp),
+            ) {
                 items(cur.lines) { Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp) }
             }
             ExtraKeys(onSend = { onInput(it) })
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    placeholder = { Text("Type command…") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { submitInput() }),
+                )
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(onClick = { submitInput() }, enabled = input.isNotEmpty()) {
+                    Text("Send")
+                }
+            }
         } else {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Text("No active terminal tab. Tap + to open one.", style = MaterialTheme.typography.bodyMedium)

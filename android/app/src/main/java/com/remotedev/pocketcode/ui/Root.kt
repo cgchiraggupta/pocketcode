@@ -13,8 +13,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.remotedev.pocketcode.PocketcodeApp
+import com.remotedev.pocketcode.connection.ConnState
 import com.remotedev.pocketcode.files.FileTreeScreen
 import com.remotedev.pocketcode.git.GitPanelScreen
+import com.remotedev.pocketcode.pairing.PairingQR
 import com.remotedev.pocketcode.pairing.QrParser
 import com.remotedev.pocketcode.pairing.QrScannerScreen
 
@@ -26,6 +28,8 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     var showPasteDialog by remember { mutableStateOf(false) }
     var showWorkspaceDialog by remember { mutableStateOf(false) }
     val machines by app.machines.machines.collectAsState()
+    val connState by app.connection.state.collectAsState()
+    val lastConnectUrl by app.connection.lastConnectUrl.collectAsState()
 
     val fileTree by app.connection.fileTree.collectAsState()
     val gitStatus by app.connection.gitStatus.collectAsState()
@@ -43,9 +47,39 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
         }
     }
 
+    fun pairAndConnect(qr: PairingQR) {
+        val machine = app.machines.add(qr)
+        app.connection.connect(machine)
+        tab = 1
+    }
+
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text(if (machines.isEmpty()) "PocketCode" else machines.first().name) },
+            title = {
+                Column {
+                    Text(
+                        when (val s = connState) {
+                            is ConnState.Connected -> s.machine
+                            is ConnState.Connecting -> "Connecting…"
+                            is ConnState.Reconnecting -> "Reconnecting (${s.attempt})…"
+                            is ConnState.Error -> "Connection error"
+                            else -> if (machines.isEmpty()) "PocketCode" else machines.first().name
+                        }
+                    )
+                    val subtitle = when (connState) {
+                        is ConnState.Connected -> "Connected"
+                        is ConnState.Connecting -> "Connecting"
+                        is ConnState.Reconnecting -> "Reconnecting"
+                        is ConnState.Error -> {
+                            val reason = (connState as ConnState.Error).reason
+                            if (lastConnectUrl != null) "$reason · $lastConnectUrl" else reason
+                        }
+                        is ConnState.Disconnected -> "Disconnected"
+                        ConnState.Idle -> if (machines.isNotEmpty()) "Tap Machines to connect" else "Scan QR to pair"
+                    }
+                    Text(subtitle, style = MaterialTheme.typography.labelSmall)
+                }
+            },
             actions = {
                 TextButton(onClick = {
                     app.connection.send("""{"t":"workspace.list"}""")
@@ -109,7 +143,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                     )
                     3 -> com.remotedev.pocketcode.agent.AgentTimelineScreen(agentEvents)
                     4 -> QrScannerScreen(
-                        onPaired = { qr -> app.machines.add(qr); tab = 1 },
+                        onPaired = { qr -> pairAndConnect(qr) },
                         onManual = { showPasteDialog = true },
                     )
                     5 -> com.remotedev.pocketcode.pairing.MachineListScreen(machines, onPick = { app.connection.connect(it) })
@@ -132,10 +166,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
         PasteQrDialog(
             onDismiss = { showPasteDialog = false },
             onSubmit = { raw ->
-                QrParser.parse(raw)?.let { qr ->
-                    app.machines.add(qr)
-                    tab = 1
-                }
+                QrParser.parse(raw)?.let { pairAndConnect(it) }
                 showPasteDialog = false
             },
         )

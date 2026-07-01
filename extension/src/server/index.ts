@@ -20,6 +20,7 @@ export interface ServerOpts {
 
 export class Server extends EventEmitter {
   private http = createServer((req, res) => this.handleHttp(req, res));
+  private bindHost = '127.0.0.1';
   private wss = new WebSocketServer({ noServer: true });
   private clients = new Map<WebSocket, { deviceId: string; token: string }>();
   pty: PtyManager;
@@ -57,12 +58,22 @@ export class Server extends EventEmitter {
 
   listen(): Promise<number> {
     return new Promise((resolve) => {
-      this.http.listen(this.opts.port, '127.0.0.1', () => {
+      this.http.listen(this.opts.port, this.bindHost, () => {
         const addr = this.http.address();
         if (addr && typeof addr === 'object') resolve(addr.port);
         else resolve(this.opts.port);
       });
     });
+  }
+
+  rebindAll() {
+    this.bindHost = '0.0.0.0';
+    // ponytail: if already listening, close and re-listen. Cheap and only happens once on tailscale-ip start.
+    if (this.http.listening) {
+      this.http.close(() => {
+        this.http.listen(this.opts.port, this.bindHost);
+      });
+    }
   }
 
   close() {
@@ -71,10 +82,11 @@ export class Server extends EventEmitter {
     this.http.close();
   }
 
-  buildPairingQR(publicHost: string, publicPort: number, certFp?: string): PairingQR {
+  buildPairingQR(publicHost: string, publicPort: number, secure: boolean, certFp?: string): PairingQR {
     const token = newToken();
     this.opts.auth.issue(token);   // issue now; bind on first connect
-    const url = `wss://${publicHost}:${publicPort}/ws`;
+    const scheme = secure ? 'wss' : 'ws';
+    const url = `${scheme}://${publicHost}:${publicPort}/ws`;
     return { v: 1, url, token, fp: fingerprint(publicHost, publicPort, certFp), exp: Date.now() + this.opts.auth['expiryMs'] };
   }
 

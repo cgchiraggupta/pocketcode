@@ -30,7 +30,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
   auth.startGC();
 
   ctx.subscriptions.push(
-    vscode.commands.registerCommand('remotedev.start', () => start(auth)),
+    vscode.commands.registerCommand('remotedev.start', () => start(auth).catch((e) => vscode.window.showErrorMessage(`RemoteDev failed: ${(e as Error).message ?? e}`))),
     vscode.commands.registerCommand('remotedev.stop', () => stop()),
     vscode.commands.registerCommand('remotedev.disconnectAll', () => { const n = auth.revokeAll(); vscode.window.showInformationMessage(`Disconnected ${n} device(s).`); updateStatus(0); }),
     vscode.commands.registerCommand('remotedev.showQR', () => showQR(lastQR)),
@@ -63,13 +63,18 @@ async function start(auth: Auth) {
 
   const port = await server.listen();
 
-  const preferred = vscode.workspace.getConfiguration().get<'auto' | 'tailscale' | 'devtunnel' | 'ssh'>('remoteDev.preferredTunnel', 'auto');
+  const preferred = vscode.workspace.getConfiguration().get<'auto' | 'tailscale' | 'tailscale-ip' | 'devtunnel' | 'ssh'>('remoteDev.preferredTunnel', 'auto');
   const provider = await detect(preferred);
+  // ponytail: for tailscale-ip the phone reaches us on our tailnet IP, so the server must bind on all interfaces, not 127.0.0.1.
+  if (provider.name === 'tailscale-ip') {
+    server.rebindAll();
+  }
   const pub = await provider.start(port);
   tunnel = provider;
 
-  lastQR = server.buildPairingQR(pub.publicHost, pub.publicPort);
-  await showQR(lastQR);
+  const secure = provider.name !== 'tailscale-ip' && provider.name !== 'ssh';
+  lastQR = server.buildPairingQR(pub.publicHost, pub.publicPort, secure);
+  await showQR(lastQR, provider.name);
   updateStatus(auth.connectedDeviceCount());
 }
 
@@ -81,7 +86,7 @@ async function stop() {
   vscode.window.showInformationMessage('RemoteDev stopped.');
 }
 
-async function showQR(qr: PairingQR | null) {
+async function showQR(qr: PairingQR | null, tunnelName?: string) {
   if (!qr) { vscode.window.showInformationMessage('No active session.'); return; }
   if (qrPanel) { qrPanel.reveal(); return; }
   qrPanel = vscode.window.createWebviewPanel('remotedev.qr', 'RemoteDev — Pair', vscode.ViewColumn.Two, { enableScripts: false });
@@ -92,6 +97,7 @@ async function showQR(qr: PairingQR | null) {
       <h2>Scan with the PocketCode app</h2>
       <img src="${dataUrl}" style="background:#fff;padding:12px;border-radius:8px"/>
       <p style="opacity:.7;max-width:340px;text-align:center;margin-top:12px">
+        Tunnel: <code>${tunnelName ?? 'unknown'}</code><br/>
         URL: <code>${qr.url}</code><br/>
         Fingerprint: <code>${qr.fp}</code><br/>
         Expires: ${new Date(qr.exp).toLocaleString()}

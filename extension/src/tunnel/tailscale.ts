@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { TunnelProvider } from './index';
 
 export class Tailscale implements TunnelProvider {
@@ -8,31 +8,35 @@ export class Tailscale implements TunnelProvider {
 
   async start(localPort: number): Promise<{ publicHost: string; publicPort: number }> {
     this.port = localPort;
-    // ponytail: rely on user having set up tailnet already. We just expose the port.
-    const proc = spawn('tailscale', ['serve', 'https', '/', `http://localhost:${localPort}`], {
+    // ponytail: Tailscale v1.50+ CLI is just `tailscale serve --bg <port>`. No path, no http prefix.
+    const proc = spawn('tailscale', ['serve', '--bg', String(localPort)], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.proc = proc;
     const stderr: Buffer[] = [];
+    const stdout: Buffer[] = [];
     proc.stderr!.on('data', (b) => stderr.push(b));
+    proc.stdout!.on('data', (b) => stdout.push(b));
 
-    // Wait for "https://..." line on stderr, with timeout.
-    const url = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('tailscale serve timed out')), 8000);
-      proc.stderr!.on('data', (b: Buffer) => {
-        const s = b.toString();
-        const m = s.match(/https:\/\/[^\s]+/);
-        if (m) { clearTimeout(timer); resolve(m[0]); }
-      });
-      proc.on('exit', (code) => {
-        clearTimeout(timer);
-        reject(new Error(`tailscale exited ${code}: ${Buffer.concat(stderr).toString()}`));
-      });
+    const code: number | null = await new Promise((resolve) => {
+      const t = setTimeout(() => { try { proc.kill('SIGTERM'); } catch {} resolve(0); }, 5000);
+      proc.on('exit', (c) => { clearTimeout(t); resolve(c); });
     });
+    if (code !== 0) {
+      const msg = Buffer.concat(stderr).toString() || Buffer.concat(stdout).toString();
+      if (msg.includes('Serve is not enabled') || msg.includes('funnel/serve')) {
+        throw new Error('Tailscale Serve is not enabled on your tailnet. Enable it at https://login.tailscale.com/admin/dns or ask your tailnet admin.');
+      }
+      throw new Error(`tailscale serve failed: ${msg.trim()}`);
+    }
 
-    // ponytail: parse host from the URL. tailscale serves on 443 by default with their hostname.
-    const u = new URL(url);
-    return { publicHost: u.hostname, publicPort: 443 };
+    const status = spawnSync('tailscale', ['serve', 'status', '--json']);
+    if (status.status !== 0) throw new Error(`tailscale serve status failed: ${status.stderr.toString()}`);
+    const j = JSON.parse(status.stdout.toString());
+    // ponytail: pick the first TCP or HTTPS entry. tailscale serves on 443 by default with the device's tailnet DNS name.
+    const httpsEntry = (j.HTTPS ?? j.TCP ?? [])[0];
+    if (!httpsEntry) throw new Error('no entry in tailscale serve status');
+    return { publicHost: httpsEntry.HostName, publicPort: httpsEntry.Port ?? 443 };
   }
 
   async stop(): Promise<void> {
