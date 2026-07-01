@@ -63,7 +63,7 @@ async function start(auth: Auth) {
 
   const port = await server.listen();
 
-  const preferred = vscode.workspace.getConfiguration().get<'auto' | 'tailscale' | 'devtunnel'>('remoteDev.preferredTunnel', 'auto');
+  const preferred = vscode.workspace.getConfiguration().get<'auto' | 'tailscale' | 'devtunnel' | 'ssh'>('remoteDev.preferredTunnel', 'auto');
   const provider = await detect(preferred);
   const pub = await provider.start(port);
   tunnel = provider;

@@ -19,6 +19,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.MultiFormatReader
+import com.google.zxing.NotFoundException
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import java.util.concurrent.Executors
@@ -32,8 +33,13 @@ fun QrScannerScreen(onPaired: (PairingQR) -> Unit, onManual: () -> Unit) {
         )
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasPermission = it }
+    // ponytail: one-shot guard so the same QR doesn't fire onPaired on every camera frame.
+    val consumed = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
-    LaunchedEffect(Unit) { if (!hasPermission) launcher.launch(Manifest.permission.CAMERA) }
+    LaunchedEffect(Unit) {
+        consumed.set(false)
+        if (!hasPermission) launcher.launch(Manifest.permission.CAMERA)
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Pair with your computer", style = MaterialTheme.typography.headlineSmall)
@@ -51,7 +57,9 @@ fun QrScannerScreen(onPaired: (PairingQR) -> Unit, onManual: () -> Unit) {
                     val preview = androidx.camera.core.Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
                     val analyzer = ImageAnalysis.Builder().build().also {
                         it.setAnalyzer(Executors.newSingleThreadExecutor(), QrAnalyzer { raw ->
-                            QrParser.parse(raw)?.let(onPaired)
+                            if (consumed.compareAndSet(false, true)) {
+                                QrParser.parse(raw)?.let(onPaired)
+                            }
                         })
                     }
                     provider.unbindAll()
@@ -70,7 +78,13 @@ private class QrAnalyzer(private val onResult: (String) -> Unit) : ImageAnalysis
         val buf = image.planes[0].buffer
         val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
         val src = PlanarYUVLuminanceSource(bytes, image.width, image.height, 0, 0, image.width, image.height, false)
-        val result = reader.decodeWithState(BinaryBitmap(HybridBinarizer(src)))
+        val result = try {
+            reader.decodeWithState(BinaryBitmap(HybridBinarizer(src)))
+        } catch (_: NotFoundException) {
+            null
+        } catch (_: Throwable) {
+            null
+        }
         image.close()
         if (result != null) onResult(result.text)
     }

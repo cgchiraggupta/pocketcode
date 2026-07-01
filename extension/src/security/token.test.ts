@@ -1,7 +1,6 @@
-# Tiny self-check for pure logic (no vscode/node-pty imports).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hashToken } from '../out/security/token';
+import { hashToken } from './token';
 
 test('hashToken is deterministic and not equal to input', () => {
   const t = 'abc';

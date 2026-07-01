@@ -1,48 +1,89 @@
 # PocketCode
 
-Control your editor from your phone. Peer-to-peer, zero relay.
+**Control your code editor from your phone.** Peer-to-peer, zero relay.
 
-Scan a QR, get a terminal. That's it.
+Scan a QR code and get a real terminal, file browser, Git controls, and live agent timeline on your phone.
 
-## Setup
+## Features
+
+- **Real PTY** — Full `node-pty` terminals with multiple tabs and ANSI color
+- **Files** — Tree navigation, read/write files directly from the phone
+- **Git** — Status, diff viewer, stage, commit, push, pull, branches, and log
+- **Dev Servers** — Stream logs from local development servers
+- **Snapshots** — One-tap pre-agent snapshots with instant revert
+- **Agent Timeline** — Live activity + cost tracking for Claude, Codex, Aider, etc.
+- **Notifications** — Actionable local notifications (Approve / Reject / View Diff)
+- **Multi-machine** — Pair and switch between several computers
+- **Flexible tunneling** — Tailscale, devtunnel, or SSH reverse tunnels
+
+## Requirements
+
+- A tunnel provider:
+  - [Tailscale](https://tailscale.com) (recommended)
+  - [devtunnel](https://aka.ms/devtunnel)
+  - Any SSH target that supports `-R` reverse forwarding
+- VS Code, Cursor, or compatible editor
+- Android device (API 26+)
+
+## Quick Start
+
+### 1. Install the VS Code extension
 
 ```bash
-# 1. Install a tunnel CLI
-brew install tailscale      # or: https://aka.ms/devtunnel
+cd extension
+npm install
+npm run build
+npx vsce package
+code --install-extension remotedev-pocketcode-*.vsix
+```
 
-# 2. Install the extension
-cd extension && npm install && npm run build && npx vsce package
-code --install-extension remotedev-pocketcode-0.1.0.vsix
+### 2. Set up a tunnel
 
-# 3. Build Android
-cd ../android && ./gradlew :app:assembleDebug
+```bash
+# Option A (recommended)
+brew install tailscale
+
+# Option B
+# Follow https://aka.ms/devtunnel
+
+# Option C (SSH)
+# Any host you can reach with `ssh -R`
+```
+
+### 3. Build and install the Android app
+
+```bash
+cd android
+./gradlew :app:assembleDebug
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Use
+### 4. Connect from your phone
 
-1. `RemoteDev: Start Mobile Session`
-2. Scan QR with the app
-3. Run `claude` or `codex` in a terminal tab. It just works.
+1. Open a project in VS Code
+2. Run **RemoteDev: Start Mobile Session** (or click the status bar)
+3. Scan the QR code using the PocketCode Android app
+4. Use the full remote session — terminal, files, Git, and agent oversight
 
-## What's there
+## SSH Tunnel Configuration
 
-- Real PTY (node-pty), multi-tab, full color
-- File tree, search, read/write
-- Git: status, diff, stage, commit, push, branch, log
-- Dev server stream watcher
-- Snapshots (one-tap rollback before letting an agent run)
-- Agent timeline + cost tracker (parsed from CLI output)
-- Push notifs with Approve/Reject/View Diff buttons
-- Multi-machine: pair several computers, switch between them
+Add to your VS Code settings when using SSH:
 
-## What's not
+```json
+{
+  "remoteDev.preferredTunnel": "ssh",
+  "remoteDev.sshTarget": "user@your-host.example.com",
+  "remoteDev.sshRemotePort": 0
+}
+```
 
-- Code editor on Android is a stub. Drop in sora-editor / compose-code-editor.
-- 16-color ANSI only. Truecolor later.
-- Wear OS, Tasker hooks, biometric prompt — declared but unwired.
-- 1 unit test. Add more.
+## Documentation
 
-See `extension/README.md` and `android/README.md` for the boring details, `docs/SECURITY.md` for the threat model.
+- [Architecture](docs/ARCHITECTURE.md)
+- [Security Model](docs/SECURITY.md)
+- [Extension details](extension/README.md)
+- [Android details](android/README.md)
 
-MIT.
+## License
+
+MIT

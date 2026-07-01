@@ -7,8 +7,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -31,10 +29,9 @@ object AgentEventParser {
 }
 
 @Composable
-fun AgentTimelineScreen(events: MutableStateFlow<List<AgentEvent>>) {
-    val list by events.collectAsState()
+fun AgentTimelineScreen(events: List<AgentEvent>) {
     LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
-        items(list) { e ->
+        items(events) { e ->
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 Text(e.kind, modifier = Modifier.width(100.dp), style = MaterialTheme.typography.labelMedium)
                 Text(e.summary)

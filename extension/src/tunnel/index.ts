@@ -17,12 +17,14 @@ async function which(bin: string): Promise<string | null> {
   });
 }
 
-export async function detect(preferred: 'auto' | 'tailscale' | 'devtunnel'): Promise<TunnelProvider> {
+export async function detect(preferred: 'auto' | 'tailscale' | 'devtunnel' | 'ssh'): Promise<TunnelProvider> {
   if (preferred === 'auto') {
     if (await which('tailscale')) return new (await import('./tailscale')).Tailscale();
     if (await which('devtunnel')) return new (await import('./devtunnel')).DevTunnel();
-    throw new Error('No tunnel CLI found. Install Tailscale (https://tailscale.com) or devtunnel (https://aka.ms/devtunnel).');
+    if (await which('ssh')) return new (await import('./ssh')).SSHTunnel();
+    throw new Error('No tunnel CLI found. Install Tailscale (https://tailscale.com) or devtunnel (https://aka.ms/devtunnel) or configure SSH.');
   }
   if (preferred === 'tailscale') return new (await import('./tailscale')).Tailscale();
-  return new (await import('./devtunnel')).DevTunnel();
+  if (preferred === 'devtunnel') return new (await import('./devtunnel')).DevTunnel();
+  return new (await import('./ssh')).SSHTunnel();
 }

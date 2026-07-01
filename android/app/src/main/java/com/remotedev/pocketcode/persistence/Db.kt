@@ -15,7 +15,7 @@ data class Transcript(@PrimaryKey(autoGenerate = true) val id: Long = 0, val ses
 data class StoredEvent(@PrimaryKey(autoGenerate = true) val id: Long = 0, val session: String, val kind: String, val summary: String, val ts: Long)
 
 @Dao
-interface Dao {
+interface AppDao {
     @Insert suspend fun addTranscript(t: Transcript): Long
     @Query("SELECT * FROM transcript WHERE session = :s ORDER BY ts") fun streamTranscript(s: String): Flow<List<Transcript>>
     @Query("SELECT * FROM agent_event WHERE session = :s ORDER BY ts") fun events(s: String): Flow<List<StoredEvent>>
@@ -23,4 +23,4 @@ interface Dao {
 }
 
 @Database(entities = [Transcript::class, StoredEvent::class], version = 1, exportSchema = false)
-abstract class Db : RoomDatabase() { abstract fun dao(): Dao }
+abstract class Db : RoomDatabase() { abstract fun dao(): AppDao }

@@ -1,5 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
+import * as vscode from 'vscode';
 import { Auth } from './auth';
 import { PtyManager } from '../pty/manager';
 import { FilesManager } from '../files/manager';
@@ -135,10 +136,25 @@ export class Server extends EventEmitter {
       case 'git.log': return { t: 'git.log' as any, entries: await this.git.log(msg.max) } as any;
 
       case 'devservers': return { t: 'devservers' as any, list: await listDevServers() } as any;
+      case 'devserver.log': {
+        const servers = await listDevServers();
+        const srv = servers.find(s => s.port === (msg as any).port);
+        if (!srv) return { t: 'error', msg: `No dev server listening on port ${(msg as any).port}` };
+        return { t: 'devserver.log' as any, port: (msg as any).port, data: `Dev Server Info:\nCommand: ${srv.cmd}\nPID: ${srv.pid}\nPort: ${srv.port}\n\nNote: capture logs by launching in terminal.` } as any;
+      }
+      case 'workspace.list': return { t: 'workspace.list' as any, list: vscode.workspace.workspaceFolders?.map(f => ({ name: f.name, uri: f.uri.toString() })) ?? [] } as any;
+      case 'workspace.switch': {
+        const uri = vscode.Uri.parse((msg as any).folderUri);
+        vscode.commands.executeCommand('vscode.openFolder', uri);
+        return null;
+      }
 
       case 'snapshot.create': return { t: 'snapshot.list' as any, ...(await this.snaps.create(msg.label)) } as any;
-      case 'snapshot.list': return { t: 'snapshot.list' as any, list: [] } as any;   // ponytail: in-memory only for v1
+      case 'snapshot.list': return { t: 'snapshot.list' as any, list: this.snaps.list() } as any;
       case 'snapshot.revert': await this.snaps.revert(msg.id); return null;
+
+      case 'pong': return null;   // ponytail: keepalive from client -- silently drop, don't error.
+      case 'agent.event': return null;   // ponytail: client-originated event -- accept silently.
 
       default: return { t: 'error', msg: `unknown message ${(msg as any).t}` };
     }

@@ -9,3 +9,6 @@ local.properties
 .idea/
 *.keystore
 *.jks
+
+# DevContext - AI coding context
+.devctx/

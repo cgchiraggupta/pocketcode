@@ -39,7 +39,10 @@ export class FilesManager {
 
   resolve(rel: string): string {
     const abs = path.resolve(this.root, rel);
-    if (!abs.startsWith(this.root)) throw new Error('path escapes workspace');   // ponytail: trust boundary
+    // ponytail: trust boundary. Append a separator to the root so that
+    // `/project-evil/` doesn't pass the startsWith check against `/project`.
+    const rootWithSep = this.root.endsWith(path.sep) ? this.root : this.root + path.sep;
+    if (abs !== this.root && !abs.startsWith(rootWithSep)) throw new Error('path escapes workspace');
     return abs;
   }
 

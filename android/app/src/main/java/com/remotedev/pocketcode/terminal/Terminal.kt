@@ -16,10 +16,13 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
 
-data class Tab(val id: String, val title: String, val lines: MutableStateFlow<List<AnnotatedString>>)
+data class Tab(
+    val id: String,
+    val title: String,
+    val alive: Boolean = true,
+    val lines: List<AnnotatedString> = emptyList()
+)
 
 // Minimal ANSI 16-color parser. Extend with 256/truecolor when needed.
 private val ANSI = mapOf(
@@ -29,40 +32,116 @@ private val ANSI = mapOf(
     94 to Color(0xFF60A5FA), 95 to Color(0xFFC084FC), 96 to Color(0xFF22D3EE), 97 to Color(0xFFF5F5F5),
 )
 
+private fun get256Color(idx: Int): Color {
+    if (idx in 0..15) {
+        val mapped = if (idx < 8) 30 + idx else 90 + (idx - 8)
+        return ANSI[mapped] ?: Color(0xFFE5E5E5)
+    }
+    if (idx in 16..231) {
+        val r = ((idx - 16) / 36) % 6
+        val g = ((idx - 16) / 6) % 6
+        val b = (idx - 16) % 6
+        val levels = intArrayOf(0, 95, 135, 175, 215, 255)
+        return Color(levels[r], levels[g], levels[b])
+    }
+    if (idx in 232..255) {
+        val g = 8 + (idx - 232) * 10
+        return Color(g, g, g)
+    }
+    return Color(0xFFE5E5E5)
+}
+
 fun renderAnsi(text: String): AnnotatedString = buildAnnotatedString {
-    var i = 0; var cur = Color(0xFFE5E5E5)
+    var i = 0; var curColor = Color(0xFFE5E5E5)
     while (i < text.length) {
         if (text[i] == '\u001B' && i + 1 < text.length && text[i + 1] == '[') {
             val end = text.indexOf('m', i + 2).takeIf { it > 0 } ?: text.length
-            val codes = text.substring(i + 2, end).split(';').mapNotNull { it.toIntOrNull() }
-            for (c in codes) ANSI[c]?.let { cur = it }
+            val codeStr = text.substring(i + 2, end)
+            val parts = codeStr.split(';').mapNotNull { it.toIntOrNull() }
+            
+            var pIdx = 0
+            while (pIdx < parts.size) {
+                val code = parts[pIdx]
+                when {
+                    code == 0 -> {
+                        curColor = Color(0xFFE5E5E5)
+                        pIdx++
+                    }
+                    code == 38 -> {
+                        if (pIdx + 1 < parts.size) {
+                            val mode = parts[pIdx + 1]
+                            if (mode == 5 && pIdx + 2 < parts.size) {
+                                val idx = parts[pIdx + 2]
+                                curColor = get256Color(idx)
+                                pIdx += 3
+                            } else if (mode == 2 && pIdx + 4 < parts.size) {
+                                val r = parts[pIdx + 2]
+                                val g = parts[pIdx + 3]
+                                val b = parts[pIdx + 4]
+                                curColor = Color(r, g, b)
+                                pIdx += 5
+                            } else {
+                                pIdx++
+                            }
+                        } else {
+                            pIdx++
+                        }
+                    }
+                    code == 39 -> {
+                        curColor = Color(0xFFE5E5E5)
+                        pIdx++
+                    }
+                    code in 30..37 -> {
+                        ANSI[code]?.let { curColor = it }
+                        pIdx++
+                    }
+                    code in 90..97 -> {
+                        ANSI[code]?.let { curColor = it }
+                        pIdx++
+                    }
+                    else -> {
+                        pIdx++
+                    }
+                }
+            }
             i = end + 1
-        } else { pushStyle(SpanStyle(color = cur)); append(text[i]); i++ }
+        } else {
+            pushStyle(SpanStyle(color = curColor))
+            append(text[i])
+            i++
+        }
     }
 }
 
 @Composable
-fun TerminalScreen(onInput: (String) -> Unit) {
-    val tabs = remember { mutableStateListOf(Tab("default", "shell", MutableStateFlow(emptyList()))) }
-    var active by remember { mutableStateOf(0) }
-    val cur = tabs.getOrNull(active) ?: return
+fun TerminalScreen(
+    tabs: List<Tab>,
+    activeTab: Int,
+    onActiveTabChange: (Int) -> Unit,
+    onAddTab: () -> Unit,
+    onInput: (String) -> Unit
+) {
+    val cur = tabs.getOrNull(activeTab)
 
     Column(Modifier.fillMaxSize()) {
-        // Tab strip
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             tabs.forEachIndexed { i, t ->
-                FilterChip(selected = i == active, onClick = { active = i }, label = { Text(t.title) })
+                FilterChip(selected = i == activeTab, onClick = { onActiveTabChange(i) }, label = { Text(t.title) })
                 Spacer(Modifier.width(4.dp))
             }
-            TextButton(onClick = { tabs.add(Tab("t-${System.currentTimeMillis()}", "shell-${tabs.size}", MutableStateFlow(emptyList()))); active = tabs.size - 1 }) { Text("+") }
+            TextButton(onClick = onAddTab) { Text("+") }
         }
 
-        val lines by cur.lines.collectAsState()
-        LazyColumn(Modifier.weight(1f).background(Color(0xFF0E0E10)).padding(8.dp)) {
-            items(lines) { Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp) }
+        if (cur != null) {
+            LazyColumn(Modifier.weight(1f).background(Color(0xFF0E0E10)).padding(8.dp)) {
+                items(cur.lines) { Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp) }
+            }
+            ExtraKeys(onSend = { onInput(it) })
+        } else {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Text("No active terminal tab. Tap + to open one.", style = MaterialTheme.typography.bodyMedium)
+            }
         }
-
-        ExtraKeys(onSend = { onInput(it) })
     }
 }
 
@@ -81,9 +160,4 @@ private fun ExtraKeys(onSend: (String) -> Unit) {
             OutlinedButton(onClick = { if (payload != null) onSend(payload) }) { Text(if (k == "Ctrl") "^" else k, fontSize = 11.sp) }
         }
     }
-}
-
-fun appendAnsi(tab: Tab, chunk: String) {
-    val rendered = renderAnsi(chunk)
-    tab.lines.update { it + rendered }
 }

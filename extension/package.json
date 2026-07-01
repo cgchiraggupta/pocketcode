@@ -81,9 +81,20 @@
           "enum": [
             "auto",
             "tailscale",
-            "devtunnel"
+            "devtunnel",
+            "ssh"
           ],
           "default": "auto"
+        },
+        "remoteDev.sshTarget": {
+          "type": "string",
+          "default": "",
+          "description": "SSH user@host target for SSH reverse tunnel forwarding."
+        },
+        "remoteDev.sshRemotePort": {
+          "type": "number",
+          "default": 0,
+          "description": "Remote port to listen on. 0 = random."
         },
         "remoteDev.localPort": {
           "type": "number",
