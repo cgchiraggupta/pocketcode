@@ -11,8 +11,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -20,6 +22,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.remotedev.pocketcode.voice.VoiceInput
 
 data class Tab(
     val id: String,
@@ -125,6 +128,21 @@ fun TerminalScreen(
     onAddTab: () -> Unit,
     onInput: (String) -> Unit
 ) {
+    val ctx = LocalContext.current
+    val voice = remember { VoiceInput(ctx) }
+    var listening by remember { mutableStateOf(false) }
+    val voiceText by voice.text.collectAsState()
+
+    DisposableEffect(Unit) { onDispose { voice.release() } }
+
+    LaunchedEffect(voiceText) {
+        if (listening && voiceText.isNotEmpty()) {
+            onInput(voiceText + "\n")
+            voice.text.value = ""
+            listening = false
+        }
+    }
+
     val cur = tabs.getOrNull(activeTab)
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -140,45 +158,124 @@ fun TerminalScreen(
         input = ""
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            tabs.forEachIndexed { i, t ->
-                FilterChip(selected = i == activeTab, onClick = { onActiveTabChange(i) }, label = { Text(t.title) })
-                Spacer(Modifier.width(4.dp))
+    var showTabMenu by remember { mutableStateOf(false) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0E0E10))
+    ) {
+        // ── Top bar: "Terminal N ↓"  +  [⚡] [⌨] ─────────────────────────────
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF1A1A1C))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.weight(1f)) {
+                TextButton(onClick = { showTabMenu = true }) {
+                    Text(
+                        text = if (cur != null) "${cur.title}  ▾" else "Terminal  ▾",
+                        color = Color(0xFFE5E5E5),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 15.sp,
+                    )
+                }
+                DropdownMenu(
+                    expanded = showTabMenu,
+                    onDismissRequest = { showTabMenu = false },
+                ) {
+                    tabs.forEachIndexed { i, t ->
+                        DropdownMenuItem(
+                            text = { Text(t.title, fontFamily = FontFamily.Monospace) },
+                            onClick = { onActiveTabChange(i); showTabMenu = false },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("+ New terminal") },
+                        onClick = { onAddTab(); showTabMenu = false },
+                    )
+                }
             }
-            TextButton(onClick = onAddTab) { Text("+") }
+            // Lightning bolt: voice input toggle
+            TextButton(
+                onClick = {
+                    if (listening) { voice.stop(); listening = false }
+                    else { voice.text.value = ""; voice.start(); listening = true }
+                },
+            ) {
+                Text(
+                    text = if (listening) "■" else "⚡",
+                    color = if (listening) Color(0xFFEF4444) else Color(0xFFE5E5E5),
+                    fontSize = 18.sp,
+                )
+            }
         }
 
         if (cur != null) {
+            // ── Terminal output ───────────────────────────────────────────────
             LazyColumn(
                 state = listState,
-                modifier = Modifier.weight(1f).background(Color(0xFF0E0E10)).padding(8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
-                items(cur.lines) { Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp) }
+                items(cur.lines) { line ->
+                    Text(line, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                }
             }
+
+            // ── Extra keys ───────────────────────────────────────────────────
             ExtraKeys(onSend = { onInput(it) })
+
+            // ── Input row ────────────────────────────────────────────────────
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1A1A1C))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
+                    value = if (listening) "(listening…)" else input,
+                    onValueChange = { if (!listening) input = it },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    placeholder = { Text("Type command…") },
-                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+                    enabled = !listening,
+                    placeholder = { Text("›", color = Color(0xFF6B7280), fontFamily = FontFamily.Monospace) },
+                    textStyle = LocalTextStyle.current.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 14.sp,
+                        color = Color(0xFFE5E5E5),
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = Color(0xFF3A3A3C),
+                        focusedBorderColor = Color(0xFF6B7280),
+                        cursorColor = Color(0xFFE5E5E5),
+                    ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { submitInput() }),
                 )
-                Spacer(Modifier.width(8.dp))
-                FilledTonalButton(onClick = { submitInput() }, enabled = input.isNotEmpty()) {
-                    Text("Send")
+                Spacer(Modifier.width(6.dp))
+                FilledTonalButton(
+                    onClick = { submitInput() },
+                    enabled = input.isNotEmpty() && !listening,
+                ) {
+                    Text("⏎", fontFamily = FontFamily.Monospace)  // ⏎
                 }
             }
         } else {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                Text("No active terminal tab. Tap + to open one.", style = MaterialTheme.typography.bodyMedium)
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                TextButton(onClick = onAddTab) {
+                    Text("Tap to open a terminal", color = Color(0xFF6B7280))
+                }
             }
         }
     }
@@ -186,17 +283,34 @@ fun TerminalScreen(
 
 @Composable
 private fun ExtraKeys(onSend: (String) -> Unit) {
-    val keys = listOf("Ctrl", "Tab", "Esc", "\u001B[A", "\u001B[B", "\u001B[C", "\u001B[D", "Enter")
-    Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        keys.forEach { k ->
-            val payload = when (k) {
-                "Enter" -> "\r"
-                "Tab" -> "\t"
-                "Esc" -> "\u001B"
-                "Ctrl" -> null    // modifier — handled by long-press in v2
-                else -> k
+    // Matches CodeMote's key bar: esc ctrl ->| ~ | / - left down up right
+    val keys = listOf(
+        "esc"  to "\u001B",
+        "ctrl" to "\u0003",
+        "->|"  to "\t",
+        "~"    to "~",
+        "|"    to "|",
+        "/"    to "/",
+        "-"    to "-",
+        "<-"   to "\u001B[D",
+        "v"    to "\u001B[B",
+        "^"    to "\u001B[A",
+        "->"   to "\u001B[C",
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1A1A1C))
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    ) {
+        keys.forEach { (label, payload) ->
+            TextButton(
+                onClick = { onSend(payload) },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                Text(label, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Color(0xFFD1D5DB))
             }
-            OutlinedButton(onClick = { if (payload != null) onSend(payload) }) { Text(if (k == "Ctrl") "^" else k, fontSize = 11.sp) }
         }
     }
 }

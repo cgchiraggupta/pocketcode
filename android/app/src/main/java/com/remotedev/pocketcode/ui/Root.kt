@@ -36,6 +36,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     val gitDiff by app.connection.gitDiff.collectAsState()
     val agentEvents by app.connection.agentEvents.collectAsState()
     val terminalTabs by app.connection.terminalTabs.collectAsState()
+    val costUpdate by app.connection.costFlow.collectAsState()
     var activeTerminalTab by remember { mutableStateOf(0) }
 
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -67,7 +68,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         }
                     )
                     val subtitle = when (connState) {
-                        is ConnState.Connected -> "Connected"
+                        is ConnState.Connected -> costUpdate?.let { "Connected · ~\$${"%.4f".format(it.usd)}" } ?: "Connected"
                         is ConnState.Connecting -> "Connecting"
                         is ConnState.Reconnecting -> "Reconnecting"
                         is ConnState.Error -> {

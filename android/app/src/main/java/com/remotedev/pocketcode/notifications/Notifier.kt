@@ -46,15 +46,11 @@ object Notifier {
     }
 
     fun show(ctx: Context, title: String, text: String, sessionId: String) {
-        val approve = pendingFor(ctx, NotificationActionReceiver.ACTION_APPROVE, sessionId, 0)
-        val reject = pendingFor(ctx, NotificationActionReceiver.ACTION_REJECT, sessionId, 1)
         val view = pendingFor(ctx, NotificationActionReceiver.ACTION_VIEW_DIFF, sessionId, 2)
         val n = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
             .setContentTitle(title)
             .setContentText(text)
-            .addAction(0, "Approve", approve)
-            .addAction(0, "Reject", reject)
             .addAction(0, "View diff", view)
             .setAutoCancel(true)
             .build()
