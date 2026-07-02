@@ -88,7 +88,9 @@ async function stop() {
 
 async function showQR(qr: PairingQR | null, tunnelName?: string) {
   if (!qr) { vscode.window.showInformationMessage('No active session.'); return; }
-  if (qrPanel) { qrPanel.reveal(); return; }
+  // Always rebuild the panel content so a restarted session shows the fresh QR,
+  // not a stale one from the previous run.
+  if (qrPanel) { qrPanel.dispose(); qrPanel = null; }
   qrPanel = vscode.window.createWebviewPanel('remotedev.qr', 'RemoteDev — Pair', vscode.ViewColumn.Two, { enableScripts: false });
   qrPanel.onDidDispose(() => qrPanel = null);
   const dataUrl = await QRCode.toDataURL(JSON.stringify(qr), { errorCorrectionLevel: 'M', margin: 1, scale: 6 });

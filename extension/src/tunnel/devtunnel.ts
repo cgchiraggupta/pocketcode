@@ -8,9 +8,8 @@ export class DevTunnel implements TunnelProvider {
 
   async start(localPort: number): Promise<{ publicHost: string; publicPort: number }> {
     this.port = localPort;
-    const id = `pocketcode-${Date.now()}`;
     const proc = spawn('devtunnel', [
-      'host', '-p', String(localPort), '--id', id, '--allow-anonymous',
+      'host', '-p', String(localPort), '--allow-anonymous',
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     this.proc = proc;
 
