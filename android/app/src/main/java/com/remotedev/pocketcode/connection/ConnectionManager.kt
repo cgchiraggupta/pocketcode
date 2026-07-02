@@ -6,6 +6,8 @@ import com.remotedev.pocketcode.pairing.PairedMachine
 import com.remotedev.pocketcode.files.FsNode
 import com.remotedev.pocketcode.git.GitStatus
 import com.remotedev.pocketcode.agent.AgentEvent
+import com.remotedev.pocketcode.agent.CostTracker
+import com.remotedev.pocketcode.agent.CostUpdate
 import com.remotedev.pocketcode.terminal.Tab
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +57,8 @@ class ConnectionManager(private val ctx: Context) {
     val gitStatus = MutableStateFlow<GitStatus>(GitStatus())
     val gitDiff = MutableStateFlow<String>("")
     val agentEvents = MutableStateFlow<List<AgentEvent>>(emptyList())
+    private val costState = CostTracker.State()
+    val costFlow = MutableStateFlow<CostUpdate?>(null)
     val openFile = MutableStateFlow<Pair<String, String>?>(null)
     val terminalTabs = MutableStateFlow<List<Tab>>(emptyList())
     val devServers = MutableStateFlow<List<String>>(emptyList())
@@ -133,6 +137,24 @@ class ConnectionManager(private val ctx: Context) {
                                     tab
                                 }
                             }
+                            // Feed the same terminal chunk through the parsers.
+                            com.remotedev.pocketcode.agent.AgentEventParser.parse(data) { ev ->
+                                agentEvents.value = agentEvents.value + ev
+                                scope.launch {
+                                    PocketcodeApp.instance.db.dao().addEvent(
+                                        com.remotedev.pocketcode.persistence.StoredEvent(
+                                            session = "current", kind = ev.kind, summary = ev.summary, ts = ev.ts
+                                        )
+                                    )
+                                }
+                                com.remotedev.pocketcode.widget.AgentStatusWidget.push(ctx, ev.kind)
+                            }
+                            CostTracker.consume(data, costState)?.let { costFlow.value = it }
+                        }
+                        "error" -> {
+                            val msg = obj["msg"]?.jsonPrimitive?.content ?: "unknown error"
+                            android.util.Log.e("PocketCode", "Server error: $msg")
+                            com.remotedev.pocketcode.notifications.Notifier.show(ctx, "Server error", msg, "server-error")
                         }
                         "term.exit" -> {
                             val tabId = obj["tab"]?.jsonPrimitive?.content ?: ""
@@ -169,6 +191,7 @@ class ConnectionManager(private val ctx: Context) {
         userDisconnected = false
         lastMachine = machine
         reconnectJob?.cancel()
+        com.remotedev.pocketcode.service.SessionForegroundService.start(ctx)
         openWebSocket(machine)
     }
 
@@ -181,13 +204,15 @@ class ConnectionManager(private val ctx: Context) {
         }
         val wsUrl = buildWsUrl(machine)
         lastConnectUrl.value = wsUrl.replace(Regex("token=[^&]+"), "token=…")
-        val httpUrl = wsUrl.toHttpUrlOrNull()
-        if (httpUrl == null || machine.url.contains("PairedMachine(")) {
+        // Validate: reject obviously bad URLs (e.g. stale serialised objects) without
+        // using toHttpUrlOrNull() — OkHttp accepts ws/wss directly in Request.Builder
+        // but toHttpUrlOrNull() rejects them, causing a false "Invalid pairing URL".
+        if (machine.url.contains("PairedMachine(") || !wsUrl.startsWith("ws")) {
             _state.value = ConnState.Error("Invalid pairing URL — scan a fresh QR code")
             return
         }
         val req = Request.Builder()
-            .url(httpUrl)
+            .url(wsUrl)
             .addHeader("x-device-id", deviceId())
             .addHeader("x-device-fingerprint", androidId())
             .build()
@@ -257,17 +282,32 @@ class ConnectionManager(private val ctx: Context) {
         activeWs?.close(1000, "user")
         activeWs = null
         _state.value = ConnState.Idle
+        com.remotedev.pocketcode.service.SessionForegroundService.stop(ctx)
     }
 
     private fun buildWsUrl(machine: PairedMachine): String {
         val base = machine.url.trim()
         if (base.contains("token=")) return base
-        val parsed = base.toHttpUrlOrNull() ?: return base
-        if (machine.token.isEmpty()) return parsed.toString()
-        return parsed.newBuilder()
+        if (machine.token.isEmpty()) return base
+        // toHttpUrlOrNull() rejects ws/wss schemes — swap to http/https for parsing,
+        // then restore the original scheme after appending the token.
+        val isWss = base.startsWith("wss://")
+        val isWs  = base.startsWith("ws://")
+        val parseable = when {
+            isWss -> base.replaceFirst("wss://", "https://")
+            isWs  -> base.replaceFirst("ws://",  "http://")
+            else  -> base
+        }
+        val parsed = parseable.toHttpUrlOrNull() ?: return base
+        val withToken = parsed.newBuilder()
             .addQueryParameter("token", machine.token)
             .build()
             .toString()
+        return when {
+            isWss -> withToken.replaceFirst("https://", "wss://")
+            isWs  -> withToken.replaceFirst("http://",  "ws://")
+            else  -> withToken
+        }
     }
 
     private fun deviceId(): String {
