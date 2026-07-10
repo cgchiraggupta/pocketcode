@@ -1,6 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import * as vscode from 'vscode';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Auth } from './auth';
 import { PtyManager } from '../pty/manager';
 import { FilesManager } from '../files/manager';
@@ -12,11 +13,20 @@ import { WsMsg, PairingQR } from './protocol';
 import { fingerprint, newToken } from '../security/token';
 import { EventEmitter } from 'node:events';
 
+export interface WorkspaceFolderInfo {
+  name: string;
+  uri: string;
+}
+
 export interface ServerOpts {
   port: number;                    // local port to bind (loopback)
   workspaceRoot: string;
   auth: Auth;
   maxTerminals: number;
+  /** Optional multi-folder listing (VS Code host). Headless defaults to single root. */
+  listWorkspaces?: () => WorkspaceFolderInfo[];
+  /** Optional open-folder hook (VS Code only). Headless returns an error. */
+  openWorkspaceFolder?: (folderUri: string) => void;
 }
 
 interface ClientState {
@@ -254,10 +264,18 @@ export class Server extends EventEmitter {
         return { t: 'error', msg: `No dev server on port ${port}` };
       }
 
-      case 'workspace.list': return { t: 'workspace.list' as any, list: vscode.workspace.workspaceFolders?.map(f => ({ name: f.name, uri: f.uri.toString() })) ?? [] } as any;
+      case 'workspace.list': {
+        const list = this.opts.listWorkspaces?.() ?? [{
+          name: path.basename(this.opts.workspaceRoot) || this.opts.workspaceRoot,
+          uri: pathToFileURL(this.opts.workspaceRoot).href,
+        }];
+        return { t: 'workspace.list' as any, list } as any;
+      }
       case 'workspace.switch': {
-        const uri = vscode.Uri.parse((msg as any).folderUri);
-        vscode.commands.executeCommand('vscode.openFolder', uri);
+        if (!this.opts.openWorkspaceFolder) {
+          return { t: 'error', msg: 'workspace.switch is only available inside VS Code/Cursor' };
+        }
+        this.opts.openWorkspaceFolder((msg as any).folderUri);
         return null;
       }
 

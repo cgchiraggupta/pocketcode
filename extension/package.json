@@ -25,6 +25,9 @@
     "onCommand:remotedev.stop"
   ],
   "main": "./out/extension.js",
+  "bin": {
+    "pocketcode-cli": "./out/cli.js"
+  },
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -116,7 +119,8 @@
     "package": "vsce package",
     "publish": "vsce publish",
     "lint": "eslint src --ext .ts",
-    "test": "node --test $(find out -name '*.test.js')"
+    "test": "node --test $(find out -name '*.test.js')",
+    "cli": "node out/cli.js"
   },
   "dependencies": {
     "node-pty": "^1.0.0",

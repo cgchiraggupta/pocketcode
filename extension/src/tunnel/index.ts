@@ -17,9 +17,12 @@ async function which(bin: string): Promise<string | null> {
   });
 }
 
-export type TunnelPref = 'auto' | 'tailscale' | 'tailscale-ip' | 'devtunnel' | 'ssh';
+export type TunnelPref = 'auto' | 'local' | 'tailscale' | 'tailscale-ip' | 'devtunnel' | 'ssh';
 
-export async function detect(preferred: TunnelPref): Promise<TunnelProvider> {
+export async function detect(preferred: TunnelPref, opts?: { localHost?: string }): Promise<TunnelProvider> {
+  if (preferred === 'local') {
+    return new (await import('./local')).LocalTunnel(opts?.localHost);
+  }
   if (preferred === 'auto') {
     // ponytail: devtunnel is the CodeMote default — zero pre-existing setup beyond
     // `devtunnel user login`, matching "scan QR, done" onboarding. Tailscale requires
@@ -28,7 +31,8 @@ export async function detect(preferred: TunnelPref): Promise<TunnelProvider> {
     if (await which('devtunnel')) return new (await import('./devtunnel')).DevTunnel();
     if (await which('tailscale')) return new (await import('./tailscale-ip')).TailscaleIP();
     if (await which('ssh')) return new (await import('./ssh')).SSHTunnel();
-    throw new Error('No tunnel CLI found. Install devtunnel (https://aka.ms/devtunnel), or Tailscale, or configure SSH.');
+    // Headless / bare boxes: fall back to LAN local rather than hard-failing.
+    return new (await import('./local')).LocalTunnel(opts?.localHost);
   }
   if (preferred === 'tailscale') return new (await import('./tailscale')).Tailscale();
   if (preferred === 'tailscale-ip') return new (await import('./tailscale-ip')).TailscaleIP();

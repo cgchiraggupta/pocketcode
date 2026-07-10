@@ -12,7 +12,7 @@ Source: https://www.producthunt.com/products/codemote-remote-control-for-any-ai
 | 1b | (found while fixing #1) Server never actually emitted `agent.event` at all — no approval-prompt detection existed. This was the real root cause, bigger than originally scoped. | ✅ **DONE** |
 | 2 | Reconnect resume / scrollback replay correctness | ✅ **DONE** |
 | 3 | Live-updating notification (lock-screen-style terminal + auto waiting state) | ✅ **DONE** |
-| 4 | Headless CLI mode (`npx`-style, no VS Code needed) | ⏳ NOT STARTED |
+| 4 | Headless CLI mode (`npx`-style, no VS Code needed) | ✅ **DONE** (MVP) |
 | 5 | ngrok / Cloudflare tunnel options (CodeMote has these, PocketCode only has devtunnel/tailscale/tailscale-ip/ssh) | ⏳ NOT STARTED (noted, not prioritized yet) |
 
 **Priority order chosen (senior-eng call, user delegated authority):** 1 → 2 → 3 → 4. Item 5 deprioritized.
@@ -147,14 +147,46 @@ CodeMote's signature UX is a **single live card per agent session** that flips R
 
 ---
 
-## Next up: Item #4 — headless CLI mode (`npx`-style, no VS Code)
+## What was actually done — Item #4 (COMPLETE MVP) — branch `GROKCHANGES`
 
-Biggest remaining independent piece. Extension currently bootstraps via `extension.ts` + VS Code APIs (workspace root, status bar, QR panel). Headless mode needs a standalone Node entry that:
-1. Starts the same `Server` on a chosen port / tunnel
-2. Prints / serves a pairing QR without the VS Code webview
-3. Resolves cwd from CLI args / env, not `vscode.workspace`
+Standalone Node CLI so PocketCode runs on a bare VPS / SSH box with no VS Code/Cursor.
 
-**First step:** read `extension/src/extension.ts` + `server/index.ts` constructor deps and list every `vscode.*` call site that would need a shim or CLI alternative.
+### Files changed
+
+- **`extension/src/cli.ts`** (NEW) — `pocketcode-cli` entry: parse args, start `Server` + tunnel, print ASCII QR + pairing JSON, SIGINT shutdown.
+- **`extension/src/cli.test.ts`** (NEW) — 4 unit tests for `parseArgs`.
+- **`extension/src/tunnel/local.ts`** (NEW) — LAN/loopback "tunnel" (no external binary); auto-detect falls back here.
+- **`extension/src/tunnel/index.ts`** — `TunnelPref` adds `local`; `auto` falls back to LocalTunnel.
+- **`extension/src/tunnel/ssh.ts`** — no hard `import vscode`; reads constructor opts → env → optional vscode settings.
+- **`extension/src/server/index.ts`** — removed `vscode` import; `listWorkspaces` / `openWorkspaceFolder` injected via `ServerOpts` (headless defaults to single root).
+- **`extension/src/extension.ts`** — injects VS Code workspace hooks into Server.
+- **`extension/package.json`** — `"bin": { "pocketcode-cli": "./out/cli.js" }`, `"cli"` script.
+
+### Run
+
+```bash
+cd extension && npm run build
+npm run cli -- /path/to/project --tunnel local --port 8765
+# or: node out/cli.js --help
+```
+
+### Verification
+
+- `npm test` — **14/14 pass** (detector + buffer + token + cli parseArgs).
+- Smoke: `node out/cli.js … --tunnel local --port 18765` → health `{"ok":true,"devices":0}`, QR printed, clean SIGINT.
+- **Not yet published to npm** as a standalone package name; bin works via local `node out/cli.js` / npm link.
+
+### Follow-ups (not blocking MVP)
+
+- Persist tunnel id for headless devtunnel (extension uses workspaceState).
+- Optional `npx` package split if we want install without cloning the monorepo.
+- Item #5 tunnels (ngrok/cloudflare) still open.
+
+---
+
+## Next up: Item #5 — ngrok / Cloudflare tunnels (optional)
+
+Deprioritized earlier. Only pick up if phones need public reach without tailscale/devtunnel. Alternative: document `local` + `devtunnel` + `tailscale` as the supported set.
 
 ---
 
