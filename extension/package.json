@@ -110,12 +110,13 @@
     }
   },
   "scripts": {
+    "prebuild": "mkdir -p out/pty && cp src/pty/pty-helper.py out/pty/pty-helper.py",
     "build": "tsc -p .",
     "watch": "tsc -w -p .",
     "package": "vsce package",
     "publish": "vsce publish",
     "lint": "eslint src --ext .ts",
-    "test": "node --test out/**/*.test.js"
+    "test": "node --test $(find out -name '*.test.js')"
   },
   "dependencies": {
     "node-pty": "^1.0.0",

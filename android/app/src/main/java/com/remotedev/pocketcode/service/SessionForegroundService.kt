@@ -12,10 +12,12 @@ import androidx.core.app.NotificationCompat
 import com.remotedev.pocketcode.MainActivity
 import com.remotedev.pocketcode.PocketcodeApp
 import com.remotedev.pocketcode.connection.ConnState
+import com.remotedev.pocketcode.notifications.AgentLiveTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -33,17 +35,24 @@ class SessionForegroundService : Service() {
         super.onCreate()
         ensureChannel()
         startForeground(NOTIF_ID, buildNotification("Connecting…"))
+        // Combine connection state + live agent summary so the FG notification
+        // mirrors CodeMote-style "still running / 1 waiting" at a glance.
         scope.launch {
-            PocketcodeApp.instance.connection.state.collect { state ->
-                when (state) {
-                    is ConnState.Connected    -> updateNotification("Connected to ${state.machine}")
-                    is ConnState.Connecting   -> updateNotification("Connecting to ${state.machine}…")
-                    is ConnState.Reconnecting -> updateNotification("Reconnecting (${state.attempt})…")
-                    ConnState.Disconnected,
-                    ConnState.Idle            -> stopSelf()
-                    is ConnState.Error        -> stopSelf()
+            combine(
+                PocketcodeApp.instance.connection.state,
+                AgentLiveTracker.states,
+            ) { state, _ -> state to AgentLiveTracker.summary() }
+                .collect { (state, agentSummary) ->
+                    val suffix = if (agentSummary.isNotEmpty()) " · $agentSummary" else ""
+                    when (state) {
+                        is ConnState.Connected    -> updateNotification("Connected to ${state.machine}$suffix")
+                        is ConnState.Connecting   -> updateNotification("Connecting to ${state.machine}…")
+                        is ConnState.Reconnecting -> updateNotification("Reconnecting (${state.attempt})…")
+                        ConnState.Disconnected,
+                        ConnState.Idle            -> stopSelf()
+                        is ConnState.Error        -> stopSelf()
+                    }
                 }
-            }
         }
     }
 

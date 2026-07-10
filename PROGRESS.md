@@ -11,7 +11,7 @@ Source: https://www.producthunt.com/products/codemote-remote-control-for-any-ai
 | 1 | Per-agent addressable approve/reject (was hitting "most recent PTY" instead of the right tab) | ✅ **DONE** |
 | 1b | (found while fixing #1) Server never actually emitted `agent.event` at all — no approval-prompt detection existed. This was the real root cause, bigger than originally scoped. | ✅ **DONE** |
 | 2 | Reconnect resume / scrollback replay correctness | ✅ **DONE** |
-| 3 | Live-updating notification (lock-screen-style terminal + auto waiting state) | ⏳ NOT STARTED (partial: `term.exit` completion/failure notification already added as a side effect of #1) |
+| 3 | Live-updating notification (lock-screen-style terminal + auto waiting state) | ✅ **DONE** |
 | 4 | Headless CLI mode (`npx`-style, no VS Code needed) | ⏳ NOT STARTED |
 | 5 | ngrok / Cloudflare tunnel options (CodeMote has these, PocketCode only has devtunnel/tailscale/tailscale-ip/ssh) | ⏳ NOT STARTED (noted, not prioritized yet) |
 
@@ -118,11 +118,43 @@ no matter how much happened while it was away. `handleWs` only ever sent
 
 ---
 
-## Next up: Item #3 — live-updating notification (lock-screen-style + auto waiting state)
+## What was actually done — Item #3 (COMPLETE) — branch `GROKCHANGES`
 
-Item #3 is partially covered already (`term.exit` → completion/failure notification landed as a side effect of item #1). What's still missing is the CodeMote-style behavior of a single **live-updating** notification that reflects current waiting/running state (not just point-in-time "here's an event" pushes), e.g. lock-screen-visible, updates in place rather than stacking new notifications per event.
+CodeMote's signature UX is a **single live card per agent session** that flips Running ↔ Waiting in place (not a stack of one-shots). Android has no iOS Live Activities, so we implement the closest equivalent: stable notification IDs + `setOnlyAlertOnce` + ongoing flags + a sticky Waiting state.
 
-**First step:** read `android/.../notifications/Notifier.kt` in full to see what's there now (currently just `show()` for actionable + `showInfo()` for informational, both presumably fire-and-forget one-shot notifications) and check whether Android's notification APIs being targeted (channel setup, ongoing/foreground-style updates) support in-place updates by tag/id rather than always posting new ones.
+### Files changed
+
+- **`android/.../notifications/AgentLiveState.kt`** (NEW) — pure `LiveAgentState` sealed class (`Running` / `Waiting(snippet)` / `Finished(code)`) + `AgentLiveTracker` StateFlow map with transition rules. Waiting is sticky against Running unless `force=true` (approve/reject/exit). Exposes `summary()` for the FG service.
+- **`android/.../notifications/Notifier.kt`** — `updateLive()` / `clearLive()`; channels `agent_live` (LOW) and `agent_waiting` (HIGH). Same `tabId.hashCode()` id is re-notified in place. Approve/Reject now flip the live card to Running instead of cancelling it.
+- **`android/.../connection/ConnectionManager.kt`** — `term.data` → Running (if changed); `agent.event awaiting_approval` → Waiting; `term.exit` → Finished; disconnect clears all live cards.
+- **`android/.../service/SessionForegroundService.kt`** — FG notification text appends tracker summary (`Connected to X · 1 waiting · 2 running`).
+- **`android/app/build.gradle.kts`** — JUnit + coroutines-test for unit tests.
+- **`android/.../AgentLiveTrackerTest.kt`** (NEW) — 9 unit tests for transition stickiness / summary / clear.
+- **`extension/src/agent-detector.test.ts`** (NEW) — 6 unit tests for ApprovalDetector patterns + cooldown.
+- **`extension/package.json`** — `npm test` finds all `out/**/*.test.js` (top-level included).
+
+### Verification
+
+- Extension `npm run build` + `npm test` — **10/10 pass** (token + buffer + detector).
+- Android `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest` — **9/9 pass**.
+- **NOT yet device-tested** (need real agent y/n + lock screen / shade observation).
+
+### Known Android limits vs CodeMote iOS Live Activities
+
+- No true lock-screen Live Activity API on stock Android; ongoing + high-importance heads-up is the practical equivalent.
+- Channel switch (live ↔ waiting) may re-alert once when entering Waiting — intentional so the user notices approval needed.
+- Finished cards auto-cancel on tap; they stay until user dismisses (no timed auto-remove yet).
+
+---
+
+## Next up: Item #4 — headless CLI mode (`npx`-style, no VS Code)
+
+Biggest remaining independent piece. Extension currently bootstraps via `extension.ts` + VS Code APIs (workspace root, status bar, QR panel). Headless mode needs a standalone Node entry that:
+1. Starts the same `Server` on a chosen port / tunnel
+2. Prints / serves a pairing QR without the VS Code webview
+3. Resolves cwd from CLI args / env, not `vscode.workspace`
+
+**First step:** read `extension/src/extension.ts` + `server/index.ts` constructor deps and list every `vscode.*` call site that would need a shim or CLI alternative.
 
 ---
 

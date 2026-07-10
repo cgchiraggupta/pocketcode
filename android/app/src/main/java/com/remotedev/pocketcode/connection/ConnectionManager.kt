@@ -8,6 +8,9 @@ import com.remotedev.pocketcode.git.GitStatus
 import com.remotedev.pocketcode.agent.AgentEvent
 import com.remotedev.pocketcode.agent.CostTracker
 import com.remotedev.pocketcode.agent.CostUpdate
+import com.remotedev.pocketcode.notifications.AgentLiveTracker
+import com.remotedev.pocketcode.notifications.LiveAgentState
+import com.remotedev.pocketcode.notifications.Notifier
 import com.remotedev.pocketcode.terminal.Tab
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -113,13 +116,17 @@ class ConnectionManager(private val ctx: Context) {
                                     ts = ev.ts
                                 ))
                             }
-                            // Only an actual approval prompt gets Approve/Reject/View-diff
-                            // actions -- other agent activity is informational and
-                            // shouldn't offer buttons that do nothing meaningful when tapped.
+                            // Live notification: Waiting state gets Approve/Reject on the
+                            // same per-tab notification id (in-place update). Other kinds
+                            // stay informational one-shots so they don't stomp the live card.
                             if (kind == "awaiting_approval") {
-                                com.remotedev.pocketcode.notifications.Notifier.show(ctx, "Agent needs approval", payloadStr, tab)
+                                val snippet = extractApprovalSnippet(payloadStr)
+                                if (AgentLiveTracker.apply(tab, LiveAgentState.Waiting(snippet))) {
+                                    val title = terminalTabs.value.firstOrNull { it.id == tab }?.title
+                                    Notifier.updateLive(ctx, tab, LiveAgentState.Waiting(snippet), title)
+                                }
                             } else {
-                                com.remotedev.pocketcode.notifications.Notifier.showInfo(ctx, "Agent: $kind", payloadStr, tab)
+                                Notifier.showInfo(ctx, "Agent: $kind", payloadStr, tab)
                             }
                         }
                         "term.list" -> {
@@ -191,11 +198,19 @@ class ConnectionManager(private val ctx: Context) {
                                 com.remotedev.pocketcode.widget.AgentStatusWidget.push(ctx, ev.kind)
                             }
                             CostTracker.consume(data, costState)?.let { costFlow.value = it }
+                            // Live status: first (or subsequent non-waiting) output marks
+                            // the tab Running. Waiting is sticky until approve/reject/exit.
+                            if (tabId.isNotEmpty() &&
+                                AgentLiveTracker.apply(tabId, LiveAgentState.Running)
+                            ) {
+                                val title = terminalTabs.value.firstOrNull { it.id == tabId }?.title
+                                Notifier.updateLive(ctx, tabId, LiveAgentState.Running, title)
+                            }
                         }
                         "error" -> {
                             val msg = obj["msg"]?.jsonPrimitive?.content ?: "unknown error"
                             android.util.Log.e("PocketCode", "Server error: $msg")
-                            com.remotedev.pocketcode.notifications.Notifier.show(ctx, "Server error", msg, "server-error")
+                            Notifier.show(ctx, "Server error", msg, "server-error")
                         }
                         "term.exit" -> {
                             val tabId = obj["tab"]?.jsonPrimitive?.content ?: ""
@@ -210,11 +225,14 @@ class ConnectionManager(private val ctx: Context) {
                                     tab
                                 }
                             }
-                            // Surface completion/failure too, not just approval prompts --
-                            // otherwise the phone never learns a long-running agent session
-                            // ended while it was backgrounded or locked.
-                            val exitTitle = if (code == 0) "Session finished" else "Session failed"
-                            com.remotedev.pocketcode.notifications.Notifier.showInfo(ctx, exitTitle, "Tab exited with code $code", tabId)
+                            // Live card flips to Finished (auto-cancel) instead of a separate
+                            // one-shot that would stack next to the ongoing Running card.
+                            if (tabId.isNotEmpty()) {
+                                val finished = LiveAgentState.Finished(code)
+                                AgentLiveTracker.apply(tabId, finished, force = true)
+                                val title = terminalTabs.value.firstOrNull { it.id == tabId }?.title
+                                Notifier.updateLive(ctx, tabId, finished, title)
+                            }
                         }
                         "devservers" -> {
                             val arr = obj["list"]?.jsonArray ?: return@runCatching
@@ -342,7 +360,22 @@ class ConnectionManager(private val ctx: Context) {
         activeWs?.close(1000, "user")
         activeWs = null
         _state.value = ConnState.Idle
+        // Drop live agent cards so a later session doesn't inherit stale Running/Waiting.
+        for (tabId in AgentLiveTracker.states.value.keys.toList()) {
+            Notifier.clearLive(ctx, tabId)
+        }
+        AgentLiveTracker.clearAll()
         com.remotedev.pocketcode.service.SessionForegroundService.stop(ctx)
+    }
+
+    /** Pull a short human string out of the server payload blob (`{"snippet":"..."}` or raw). */
+    private fun extractApprovalSnippet(payloadStr: String): String {
+        return runCatching {
+            val el = json.parseToJsonElement(payloadStr)
+            el.jsonObject["snippet"]?.jsonPrimitive?.content
+                ?: el.jsonObject["summary"]?.jsonPrimitive?.content
+                ?: payloadStr
+        }.getOrDefault(payloadStr).take(200)
     }
 
     private fun buildWsUrl(machine: PairedMachine): String {
