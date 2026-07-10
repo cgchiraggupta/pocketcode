@@ -1,17 +1,21 @@
 /**
- * PtyManager — shell process manager using child_process instead of node-pty.
+ * PtyManager — shell process manager using a Python PTY helper.
  *
  * node-pty requires a native binary compiled for the exact Electron ABI, which
- * breaks across Cursor updates. This implementation uses Node's built-in
- * child_process.spawn with a helper script that allocates a real PTY via
- * the macOS/Linux `script` or `python3 -c pty.spawn` shim, giving us proper
- * terminal emulation without any native module dependency.
+ * breaks across Cursor/VS Code updates. This implementation uses a small Python
+ * script (pty-helper.py) that creates a real PTY via openpty(), forks the shell
+ * onto the slave side, and relays I/O between our piped stdio and the PTY master.
+ *
+ * Why not `script -q /dev/null`?
+ *   `script` calls tcgetattr(stdin) on startup. In the VS Code extension host,
+ *   stdin is a pipe (not a TTY), so it fails with "Operation not supported on
+ *   socket" and exits immediately. The Python helper never touches its own
+ *   stdin's tty-ness — it creates a fresh master/slave pair internally.
  */
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { spawn, ChildProcess } from 'node:child_process';
 import * as os from 'node:os';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 export interface PtyTab {
@@ -29,11 +33,31 @@ interface ShellProc {
 export class PtyManager extends EventEmitter {
   private tabs = new Map<string, ShellProc>();
   private titles = new Map<string, string>();
+  // Reconnect/scrollback support: per-tab ring buffer of recent output.
+  // Previously nothing was retained -- a client that dropped and reconnected
+  // (flaky wifi, phone locked, tunnel blip) got nothing that happened while
+  // it was away. Capped so long-running sessions don't grow unbounded.
+  private buffers = new Map<string, string>();
+  private readonly maxBufferChars = 200_000; // ~200KB/tab, enough for meaningful scrollback
   private maxTabs: number;
+  private helperPath: string;
 
   constructor(maxTabs: number) {
     super();
     this.maxTabs = maxTabs;
+    // pty-helper.py lives next to the compiled JS in the out/ directory.
+    // At build time it's copied there (see package.json scripts).  At dev
+    // time it sits alongside the TS source.  We check both locations.
+    const outPath = path.join(__dirname, 'pty-helper.py');
+    const srcPath = path.join(__dirname, '..', 'src', 'pty', 'pty-helper.py');
+    // __dirname at runtime is extension/out/pty/ (after tsc compile)
+    this.helperPath = outPath;
+    // Fallback: if the file doesn't exist next to the JS, try src path
+    try {
+      require('node:fs').accessSync(outPath);
+    } catch {
+      this.helperPath = srcPath;
+    }
   }
 
   list(): PtyTab[] {
@@ -55,16 +79,16 @@ export class PtyManager extends EventEmitter {
     const cols = opts?.cols ?? 220;
     const rows = opts?.rows ?? 50;
 
-    // Use `script` on macOS/Linux to allocate a real PTY — no native module needed.
-    // `script -q /dev/null <shell>` forks the shell inside a pseudo-terminal,
-    // so programs that check isatty() (like Claude Code) get a real TTY.
     let spawnCmd: string;
     let spawnArgs: string[];
 
     if (os.platform() === 'darwin' || os.platform() === 'linux') {
-      spawnCmd = 'script';
-      spawnArgs = ['-q', '/dev/null', shell, '-l'];
+      // Use our Python PTY helper which creates a real PTY pair.
+      // It accepts: shell, cols, rows as positional args.
+      spawnCmd = 'python3';
+      spawnArgs = [this.helperPath, shell, String(cols), String(rows)];
     } else {
+      // Windows: no PTY shim, fall back to raw shell
       spawnCmd = shell;
       spawnArgs = [];
     }
@@ -86,12 +110,13 @@ export class PtyManager extends EventEmitter {
     this.tabs.set(id, entry);
     this.titles.set(id, opts?.title ?? `bash-${this.tabs.size}`);
 
-    proc.stdout?.on('data', (chunk: Buffer) => {
-      this.emit('data', id, chunk.toString('utf8'));
-    });
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      this.emit('data', id, chunk.toString('utf8'));
-    });
+    const onOutput = (chunk: Buffer) => {
+      const str = chunk.toString('utf8');
+      this.appendToBuffer(id, str);
+      this.emit('data', id, str);
+    };
+    proc.stdout?.on('data', onOutput);
+    proc.stderr?.on('data', onOutput);
     proc.on('exit', (code) => {
       entry.alive = false;
       this.emit('exit', id, code ?? 0);
@@ -102,11 +127,22 @@ export class PtyManager extends EventEmitter {
       this.emit('exit', id, 1);
     });
 
-    // Send initial resize sequence so the shell knows its dimensions.
-    // Give the shell ~50ms to start before we try to resize.
-    setTimeout(() => this.resize(id, cols, rows), 50);
-
     return id;
+  }
+
+  private appendToBuffer(id: string, str: string) {
+    const cur = (this.buffers.get(id) ?? '') + str;
+    this.buffers.set(
+      id,
+      cur.length > this.maxBufferChars ? cur.slice(cur.length - this.maxBufferChars) : cur
+    );
+  }
+
+  // Full buffered scrollback for a tab, sent to newly-(re)connected clients so
+  // they can repaint what happened while disconnected. Empty string if unknown
+  // tab or nothing buffered yet.
+  getBuffer(id: string): string {
+    return this.buffers.get(id) ?? '';
   }
 
   write(id: string, data: string) {
@@ -117,12 +153,10 @@ export class PtyManager extends EventEmitter {
   }
 
   resize(id: string, cols: number, rows: number) {
-    // Send ANSI resize sequence; real stty is best but requires a PTY fd.
-    // script-wrapped shells pick up COLUMNS/LINES from the environment on start;
-    // for mid-session resize we send the escape sequence which most shells honour.
+    // The Python helper sets initial size via TIOCSWINSZ.  For mid-session
+    // resize we send the xterm escape sequence which most shells honour.
     const s = this.tabs.get(id);
     if (s?.alive && s.proc.stdin) {
-      // Update environment hint via escape sequence (xterm resize)
       s.proc.stdin.write(`\x1b[8;${rows};${cols}t`);
     }
   }
@@ -138,6 +172,7 @@ export class PtyManager extends EventEmitter {
     try { s.proc.kill('SIGHUP'); } catch { /* already dead */ }
     this.tabs.delete(id);
     this.titles.delete(id);
+    this.buffers.delete(id);
   }
 
   closeAll() {

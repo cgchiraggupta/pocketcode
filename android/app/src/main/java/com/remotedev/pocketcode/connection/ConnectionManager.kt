@@ -96,19 +96,31 @@ class ConnectionManager(private val ctx: Context) {
                         }
                         "agent.event" -> {
                             val kind = obj["kind"]?.jsonPrimitive?.content ?: ""
+                            // Server now stamps the originating PTY tab id on every
+                            // agent.event (see protocol.ts) -- previously this was
+                            // always hardcoded to "agent-session", so a phone running
+                            // 3 terminals had no way to tell which one needed attention.
+                            val tab = obj["tab"]?.jsonPrimitive?.content ?: "agent-session"
                             val payloadStr = obj["payload"]?.toString() ?: ""
-                            val ev = AgentEvent(System.currentTimeMillis(), kind, payloadStr)
+                            val ev = AgentEvent(System.currentTimeMillis(), kind, payloadStr, tab)
                             agentEvents.value = agentEvents.value + ev
                             val app = PocketcodeApp.instance
                             scope.launch {
                                 app.db.dao().addEvent(com.remotedev.pocketcode.persistence.StoredEvent(
-                                    session = "current",
+                                    session = tab,
                                     kind = kind,
                                     summary = payloadStr,
                                     ts = ev.ts
                                 ))
                             }
-                            com.remotedev.pocketcode.notifications.Notifier.show(ctx, "Agent: $kind", payloadStr, "agent-session")
+                            // Only an actual approval prompt gets Approve/Reject/View-diff
+                            // actions -- other agent activity is informational and
+                            // shouldn't offer buttons that do nothing meaningful when tapped.
+                            if (kind == "awaiting_approval") {
+                                com.remotedev.pocketcode.notifications.Notifier.show(ctx, "Agent needs approval", payloadStr, tab)
+                            } else {
+                                com.remotedev.pocketcode.notifications.Notifier.showInfo(ctx, "Agent: $kind", payloadStr, tab)
+                            }
                         }
                         "term.list" -> {
                             val arr = obj["tabs"]?.jsonArray ?: return@runCatching
@@ -126,19 +138,48 @@ class ConnectionManager(private val ctx: Context) {
                             }
                             terminalTabs.value = newTabs
                         }
+                        "term.replay" -> {
+                            // Server's capped scrollback buffer for a tab, sent right after
+                            // term.list on every (re)connect. Treated as authoritative --
+                            // REPLACES local lines for that tab rather than appending, since
+                            // otherwise a quick reconnect where nothing was actually missed
+                            // would duplicate everything already rendered locally.
+                            val tabId = obj["tab"]?.jsonPrimitive?.content ?: return@runCatching
+                            val data = obj["data"]?.jsonPrimitive?.content ?: ""
+                            val newLines = data.split('\n').map { line ->
+                                com.remotedev.pocketcode.terminal.renderAnsi(line)
+                            }
+                            val capped = if (newLines.size > 2000) newLines.takeLast(2000) else newLines
+                            terminalTabs.value = terminalTabs.value.map { tab ->
+                                if (tab.id == tabId) tab.copy(lines = capped) else tab
+                            }
+                            // Intentionally NOT fed through AgentEventParser or CostTracker --
+                            // this is historical output that was already processed (or should
+                            // have been) the first time it streamed through as term.data; running
+                            // it again would re-fire approval notifications for prompts the user
+                            // already answered while disconnected.
+                        }
                         "term.data" -> {
                             val tabId = obj["tab"]?.jsonPrimitive?.content ?: ""
                             val data = obj["data"]?.jsonPrimitive?.content ?: ""
                             terminalTabs.value = terminalTabs.value.map { tab ->
                                 if (tab.id == tabId) {
-                                    val rendered = com.remotedev.pocketcode.terminal.renderAnsi(data)
-                                    tab.copy(lines = tab.lines + rendered)
+                                    // Split chunk into lines so each line renders separately.
+                                    // Keep a trailing partial line (no newline yet) as the last
+                                    // entry so it gets appended on the next chunk.
+                                    val newLines = data.split('\n').map { line ->
+                                        com.remotedev.pocketcode.terminal.renderAnsi(line)
+                                    }
+                                    val merged = tab.lines + newLines
+                                    // Cap at 2000 lines to prevent OOM on long sessions
+                                    val capped = if (merged.size > 2000) merged.takeLast(2000) else merged
+                                    tab.copy(lines = capped)
                                 } else {
                                     tab
                                 }
                             }
                             // Feed the same terminal chunk through the parsers.
-                            com.remotedev.pocketcode.agent.AgentEventParser.parse(data) { ev ->
+                            com.remotedev.pocketcode.agent.AgentEventParser.parse(data, tabId) { ev ->
                                 agentEvents.value = agentEvents.value + ev
                                 scope.launch {
                                     PocketcodeApp.instance.db.dao().addEvent(
@@ -169,6 +210,11 @@ class ConnectionManager(private val ctx: Context) {
                                     tab
                                 }
                             }
+                            // Surface completion/failure too, not just approval prompts --
+                            // otherwise the phone never learns a long-running agent session
+                            // ended while it was backgrounded or locked.
+                            val exitTitle = if (code == 0) "Session finished" else "Session failed"
+                            com.remotedev.pocketcode.notifications.Notifier.showInfo(ctx, exitTitle, "Tab exited with code $code", tabId)
                         }
                         "devservers" -> {
                             val arr = obj["list"]?.jsonArray ?: return@runCatching
@@ -180,6 +226,18 @@ class ConnectionManager(private val ctx: Context) {
                                 val wObj = it.jsonObject
                                 Pair(wObj["name"]?.jsonPrimitive?.content ?: "", wObj["uri"]?.jsonPrimitive?.content ?: "")
                             }
+                        }
+                        "token.refresh" -> {
+                            // Server is proactively rotating our token before it expires.
+                            // Persist the new token into the machine record so it survives
+                            // a reconnect (the old token stays valid for a 2-minute grace period).
+                            val newToken = obj["token"]?.jsonPrimitive?.content ?: return@runCatching
+                            val newExp = obj["exp"]?.jsonPrimitive?.longOrNull ?: return@runCatching
+                            val machine = lastMachine ?: return@runCatching
+                            val updated = machine.copy(token = newToken)
+                            lastMachine = updated
+                            PocketcodeApp.instance.machines.updateToken(machine.id, newToken)
+                            android.util.Log.i("PocketCode", "Token refreshed silently; new expiry $newExp")
                         }
                     }
                 }
@@ -262,7 +320,9 @@ class ConnectionManager(private val ctx: Context) {
         reconnectJob = scope.launch {
             delay(delayMs)
             if (!userDisconnected && lastMachine?.id == machine.id) {
-                openWebSocket(machine, nextAttempt)
+                // Use the most-recent machine record — may have a refreshed token
+                val current = PocketcodeApp.instance.machines.get(machine.id) ?: machine
+                openWebSocket(current, nextAttempt)
             }
         }
     }

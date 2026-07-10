@@ -1,0 +1,136 @@
+# PocketCode — Session Progress Log
+
+_This file is the resume point. If a session gets cut, read this file first, then `CONTEXT.md` for full architecture._
+
+## Reference: CodeMote feature-parity gaps identified (2026-07-10)
+
+Source: https://www.producthunt.com/products/codemote-remote-control-for-any-ai
+
+| # | Gap | Status |
+|---|---|---|
+| 1 | Per-agent addressable approve/reject (was hitting "most recent PTY" instead of the right tab) | ✅ **DONE** |
+| 1b | (found while fixing #1) Server never actually emitted `agent.event` at all — no approval-prompt detection existed. This was the real root cause, bigger than originally scoped. | ✅ **DONE** |
+| 2 | Reconnect resume / scrollback replay correctness | ✅ **DONE** |
+| 3 | Live-updating notification (lock-screen-style terminal + auto waiting state) | ⏳ NOT STARTED (partial: `term.exit` completion/failure notification already added as a side effect of #1) |
+| 4 | Headless CLI mode (`npx`-style, no VS Code needed) | ⏳ NOT STARTED |
+| 5 | ngrok / Cloudflare tunnel options (CodeMote has these, PocketCode only has devtunnel/tailscale/tailscale-ip/ssh) | ⏳ NOT STARTED (noted, not prioritized yet) |
+
+**Priority order chosen (senior-eng call, user delegated authority):** 1 → 2 → 3 → 4. Item 5 deprioritized.
+
+---
+
+## What was actually done — Item #1 + #1b (COMPLETE)
+
+Root cause found while starting on "fix approve/reject targeting": the whole notification-driven approval flow was **unwired end-to-end**. The PTY-write mechanism (`y\n`/`n\n` on approve/reject) worked, but nothing ever detected "agent is waiting for input" server-side and pushed an `agent.event` to tell the phone to notify. `Notifier.show()` was always called with a hardcoded `"agent-session"` string — there was no way to distinguish between multiple running terminals/agents at all.
+
+### Files changed
+
+- **`extension/src/server/protocol.ts`** — `agent.event` message now carries a `tab: string` field so the client knows which terminal the event belongs to.
+- **`extension/src/agent-detector.ts`** (NEW) — `ApprovalDetector` class. Regex-based, agent-agnostic y/n-prompt detection scanning PTY output. 15s per-tab cooldown to avoid re-firing on repeated prompts. Exposes `clear()` (single tab) and `forget()` (all state for a tab, called on exit).
+- **`extension/src/server/index.ts`** — Wired `ApprovalDetector` into `pty.on('data')` to broadcast `agent.event` when a prompt is detected. `pty.on('exit')` calls `detector.forget()` for cleanup. **Real bug fixed**: `agent.approve` / `agent.reject` handlers now target `msg.session` (the specific tab the client is acting on) instead of always resolving to "most recently active alive tab" — this was silently approving/rejecting the wrong terminal when multiple agents were running. Falls back to most-recent only if the requested tab is no longer alive.
+- **`android/.../agent/AgentTimeline.kt`** — `AgentEvent` data class gained `tab: String = ""`. `AgentEventParser.parse()` now takes a `tab` param and threads it through.
+- **`android/.../notifications/Notifier.kt`** — Added `showInfo()` for non-actionable notifications. Approve/reject action buttons are now only shown for real `awaiting_approval` kind events; everything else (completion, failure, generic info) uses the plain info notification.
+- **`android/.../connection/ConnectionManager.kt`** — `agent.event` handler now uses the real `tab` from the parsed event (was hardcoded `"agent-session"` before), and branches actionable vs. info notification based on `kind`. `term.data` handler passes `tabId` into the parser. `term.exit` now also fires a completion/failure notification (this is partial coverage toward gap #3, done as a natural side effect here).
+
+### Verification done this session
+
+- `tsc --noEmit` — clean.
+- Extension `npm run build` + existing test suite — pass.
+- Android `./gradlew :app:compileDebugKotlin` — BUILD SUCCESSFUL.
+- **NOT yet tested on an actual device/emulator.** This is the main outstanding risk on item #1 — logic is verified at compile-time only, not runtime-verified against a real agent CLI's actual prompt output.
+
+---
+
+## Known pre-existing state (not from this session, do not touch/re-litigate)
+
+Repo was NOT a clean checkout before this session started. Pre-existing uncommitted WIP (905 insertions / 206 deletions across 18 files), including:
+- untracked `android/.../commands/` — SavedCommands feature, someone else's in-progress work
+- untracked `extension/src/pty/pty-helper.py` — core PTY file, not in git at all (intentional, not a mistake)
+
+This predates and is separate from feature-parity work. Do not commit over it, do not "clean it up" — just work alongside it.
+
+Also intentional-by-design (not bugs to fix silently):
+- Auth is in-memory only server-side (no disk persistence).
+- Android encrypts its token copy but Room DB session history is stored plaintext.
+- Windows has no PTY support at all — known gap, out of scope here.
+
+---
+
+## What was actually done — Item #2 (COMPLETE)
+
+Confirmed the suspected gap by reading `extension/src/pty/manager.ts`: there was
+zero output buffering. `pty.on('data')` just re-emitted raw chunks to whatever
+WS clients happened to be connected at that instant — a client that dropped
+(wifi blip, phone locked, tunnel hiccup) and reconnected got a blank terminal,
+no matter how much happened while it was away. `handleWs` only ever sent
+`term.list` (id/title/alive) on connect, never any content.
+
+### Files changed
+
+- **`extension/src/pty/manager.ts`** — Added a per-tab ring buffer (`buffers: Map<string, string>`),
+  capped at `maxBufferChars = 200_000` (~200KB/tab). Both stdout and stderr listeners
+  now route through a shared `onOutput` handler that appends to the buffer before
+  emitting `data` as before. New `getBuffer(id)` public method returns the full
+  buffered scrollback for a tab. Buffer is cleared on explicit `close()` (user closes
+  the tab) but deliberately **not** cleared on process `exit` — a reconnecting client
+  should still be able to see how/why a tab ended, not just that it's gone.
+- **`extension/src/server/protocol.ts`** — Added `term.replay` message
+  (`{ t: 'term.replay'; tab: string; data: string }`), documented as authoritative
+  (replace, not append) scrollback sent once per known tab right after `term.list`
+  on every (re)connect. Also fixed a now-stale comment on `agent.approve`/`agent.reject`
+  that still described the pre-1b "most recently active PTY tab" behavior — updated
+  to reflect the per-session targeting fixed in item #1b.
+- **`extension/src/server/index.ts`** — `handleWs` now loops `this.pty.list()`
+  right after sending `term.list` and sends one `term.replay` per tab that has
+  anything buffered.
+- **`android/.../connection/ConnectionManager.kt`** — New `"term.replay"` branch
+  in the inbound message handler, inserted right before `"term.data"`. Splits the
+  replayed buffer into lines the same way `term.data` does (via `renderAnsi`,
+  capped at 2000 lines), but **replaces** `tab.lines` wholesale rather than
+  appending — appending would double up content on a quick reconnect where nothing
+  was actually missed. Intentionally **not** fed through `AgentEventParser` or
+  `CostTracker`: this is output that (should have) already been processed the first
+  time it streamed through as `term.data`; re-running it would re-fire approval
+  notifications for prompts the user already answered while disconnected.
+- **`extension/src/pty/manager.test.ts`** (NEW) — 3 unit tests: (1) integration
+  test spawning a real PTY, echoing a marker string, confirming `getBuffer()`
+  contains it; (2) buffer cap enforcement — pushes 150KB + 100KB directly via the
+  private accumulator and confirms the result is exactly 200KB with the oldest bytes
+  dropped from the front; (3) confirms `close()` clears the buffer for a real opened
+  tab.
+
+### Verification done this session
+
+- `tsc --noEmit` — clean.
+- Extension `npm run build` — clean.
+- Extension `npm test` — **4/4 pass** (1 pre-existing + 3 new for this item).
+- Android `./gradlew :app:compileDebugKotlin` — BUILD SUCCESSFUL.
+- **NOT yet tested on an actual device/emulator** for the reconnect flow specifically
+  (i.e. actually killing wifi mid-session on a phone and confirming the terminal
+  repaints correctly). The PTY-side buffer/replay logic has a real integration test;
+  the Android-side line-replacement logic does not, since it needs a live WS round
+  trip to exercise meaningfully.
+- Known limitation carried forward: the 200KB/2000-line caps are independent
+  constants on each side (server buffer measured in chars, Android cap in rendered
+  lines) — they're not mathematically related, just both "big enough to be useful,
+  small enough not to be a problem." Fine for now, worth revisiting if either side's
+  cap turns out to feel wrong in practice.
+
+---
+
+## Next up: Item #3 — live-updating notification (lock-screen-style + auto waiting state)
+
+Item #3 is partially covered already (`term.exit` → completion/failure notification landed as a side effect of item #1). What's still missing is the CodeMote-style behavior of a single **live-updating** notification that reflects current waiting/running state (not just point-in-time "here's an event" pushes), e.g. lock-screen-visible, updates in place rather than stacking new notifications per event.
+
+**First step:** read `android/.../notifications/Notifier.kt` in full to see what's there now (currently just `show()` for actionable + `showInfo()` for informational, both presumably fire-and-forget one-shot notifications) and check whether Android's notification APIs being targeted (channel setup, ongoing/foreground-style updates) support in-place updates by tag/id rather than always posting new ones.
+
+---
+
+## Environment notes (for future sessions)
+
+- Repo: `/Users/apple/Downloads/pocketcode`, two halves: `extension/` (Node/TS VS Code ext, Fastify-style hand-rolled WS server) and `android/` (Kotlin/Compose, package `com.remotedev.pocketcode`).
+- Wire protocol: `WsMsg` discriminated union in `extension/src/server/protocol.ts` — shared contract, any change must mirror on Android.
+- PTY: custom Python `openpty()` shim (`pty-helper.py`), deliberately not `node-pty`.
+- Mac: username `apple`. `JAVA_HOME=/opt/homebrew/opt/openjdk@17` required for Gradle builds.
+- Edit pattern for remote files: base64-encode content, `echo 'B64' | base64 -d > ~/path` via osascript `do shell script`; for surgical edits use Python `str.replace()` with `assert content.count(anchor) == 1` guards.
+- Chandar's standing instruction: keep this file (and CONTEXT.md) continuously updated in-repo so any fresh Claude session can resume instantly, even mid-task. Update after every meaningful chunk of work, not just at session end.

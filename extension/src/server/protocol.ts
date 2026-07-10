@@ -21,6 +21,13 @@ export type WsMsg =
   | { t: 'term.data'; tab: string; data: string }       // server -> client
   | { t: 'term.exit'; tab: string; code: number }
   | { t: 'term.list'; tabs: Array<{ id: string; title: string; alive: boolean }> }
+  // Buffered scrollback replay: sent once per known tab immediately after
+  // term.list on every (re)connect, so a client that was disconnected (wifi
+  // drop, phone locked, tunnel blip) can repaint what it missed. `data` is
+  // the server's capped ring buffer for that tab, not an incremental diff --
+  // clients should treat it as authoritative and replace local scrollback
+  // for that tab rather than appending.
+  | { t: 'term.replay'; tab: string; data: string }
 
   | { t: 'fs.tree'; path?: string; depth?: number }
   | { t: 'fs.read'; path: string }
@@ -42,7 +49,9 @@ export type WsMsg =
   | { t: 'git.log'; max?: number }
 
   | { t: 'devservers' }
-  | { t: 'devserver.log'; port: number; follow?: boolean }
+  | { t: 'devserver.start'; cmd: string; cwd?: string }        // launch a tracked dev server process
+  | { t: 'devserver.stop'; pid: number }                       // stop a managed dev server
+  | { t: 'devserver.log'; port: number; follow?: boolean }     // follow=true → stream stdout/stderr
 
   | { t: 'workspace.list' }
   | { t: 'workspace.switch'; folderUri: string }
@@ -51,6 +60,17 @@ export type WsMsg =
   | { t: 'snapshot.list' }
   | { t: 'snapshot.revert'; id: string }
 
+  // Agent approval: sent by the android client when the user taps Approve/Reject on a notification.
+  // `session` is the specific PTY tab id the notification was for (see agent.event below).
+  // The server writes "y\n" or "n\n" to that tab; falls back to the most recently active
+  // alive tab only if the requested one is already gone (e.g. a stale tap on an old notification).
+  | { t: 'agent.approve'; session: string }
+  | { t: 'agent.reject'; session: string }
+
+  // Token refresh: sent server→client before the pairing token expires.
+  // The client should persist the new token and use it on the next reconnect.
+  | { t: 'token.refresh'; token: string; exp: number }
+
   | { t: 'pong' }
   | { t: 'error'; msg: string; trace?: string }
-  | { t: 'agent.event'; kind: string; payload: unknown };
+  | { t: 'agent.event'; tab: string; kind: string; payload: unknown };
