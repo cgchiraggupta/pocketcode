@@ -33,6 +33,13 @@ class PairedMachinesStore(ctx: Context) {
     fun remove(id: String) { val next = _flow.value.filter { it.id != id }; save(next); _flow.value = next }
     fun get(id: String): PairedMachine? = _flow.value.firstOrNull { it.id == id }
 
+    /** Silently update the persisted token for a machine after a server-side token refresh. */
+    fun updateToken(id: String, newToken: String) {
+        val next = _flow.value.map { if (it.id == id) it.copy(token = newToken) else it }
+        save(next)
+        _flow.value = next
+    }
+
     private fun load(): List<PairedMachine> {
         val raw = prefs.getString("machines", "[]") ?: "[]"
         return runCatching { Json.decodeFromString<List<PairedMachine>>(raw) }.getOrDefault(emptyList())

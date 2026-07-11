@@ -2,12 +2,14 @@ package com.remotedev.pocketcode
 
 import android.app.Application
 import androidx.room.Room
+import com.remotedev.pocketcode.commands.SavedCommandsStore
 import com.remotedev.pocketcode.connection.ConnectionManager
 import com.remotedev.pocketcode.persistence.Db
 
 class PocketcodeApp : Application() {
     val connection by lazy { ConnectionManager(this) }
     val machines by lazy { com.remotedev.pocketcode.pairing.PairedMachinesStore(this) }
+    val savedCommands by lazy { SavedCommandsStore(this) }
     val db by lazy {
         Room.databaseBuilder(this, Db::class.java, "pocketcode.db")
             .fallbackToDestructiveMigration()

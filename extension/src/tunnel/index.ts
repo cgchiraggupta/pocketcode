@@ -17,7 +17,7 @@ async function which(bin: string): Promise<string | null> {
   });
 }
 
-export type TunnelPref = 'auto' | 'local' | 'tailscale' | 'tailscale-ip' | 'devtunnel' | 'ssh';
+export type TunnelPref = 'auto' | 'local' | 'tailscale' | 'tailscale-ip' | 'devtunnel' | 'ssh' | 'ngrok' | 'cloudflare';
 
 export async function detect(preferred: TunnelPref, opts?: { localHost?: string }): Promise<TunnelProvider> {
   if (preferred === 'local') {
@@ -37,5 +37,10 @@ export async function detect(preferred: TunnelPref, opts?: { localHost?: string 
   if (preferred === 'tailscale') return new (await import('./tailscale')).Tailscale();
   if (preferred === 'tailscale-ip') return new (await import('./tailscale-ip')).TailscaleIP();
   if (preferred === 'devtunnel') return new (await import('./devtunnel')).DevTunnel();
+  // ngrok/cloudflare are explicit-only, same treatment as plain 'tailscale' and
+  // 'ssh' -- both need an external binary (and ngrok usually an auth token),
+  // so we don't want 'auto' silently picking them over the zero-setup options.
+  if (preferred === 'ngrok') return new (await import('./ngrok')).NgrokTunnel();
+  if (preferred === 'cloudflare') return new (await import('./cloudflare')).CloudflareTunnel();
   return new (await import('./ssh')).SSHTunnel();
 }

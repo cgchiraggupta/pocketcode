@@ -22,6 +22,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.remotedev.pocketcode.PocketcodeApp
+import com.remotedev.pocketcode.commands.SavedCommandBar
 import com.remotedev.pocketcode.voice.VoiceInput
 
 data class Tab(
@@ -61,11 +63,11 @@ private fun get256Color(idx: Int): Color {
 fun renderAnsi(text: String): AnnotatedString = buildAnnotatedString {
     var i = 0; var curColor = Color(0xFFE5E5E5)
     while (i < text.length) {
-        if (text[i] == '\u001B' && i + 1 < text.length && text[i + 1] == '[') {
+        if (text[i] == '' && i + 1 < text.length && text[i + 1] == '[') {
             val end = text.indexOf('m', i + 2).takeIf { it > 0 } ?: text.length
             val codeStr = text.substring(i + 2, end)
             val parts = codeStr.split(';').mapNotNull { it.toIntOrNull() }
-            
+
             var pIdx = 0
             while (pIdx < parts.size) {
                 val code = parts[pIdx]
@@ -78,8 +80,8 @@ fun renderAnsi(text: String): AnnotatedString = buildAnnotatedString {
                         if (pIdx + 1 < parts.size) {
                             val mode = parts[pIdx + 1]
                             if (mode == 5 && pIdx + 2 < parts.size) {
-                                val idx = parts[pIdx + 2]
-                                curColor = get256Color(idx)
+                                val colorIdx = parts[pIdx + 2]
+                                curColor = get256Color(colorIdx)
                                 pIdx += 3
                             } else if (mode == 2 && pIdx + 4 < parts.size) {
                                 val r = parts[pIdx + 2]
@@ -135,6 +137,10 @@ fun TerminalScreen(
 
     DisposableEffect(Unit) { onDispose { voice.release() } }
 
+    // ponytail: voice recognition result routes through onInput, the same path
+    // used by typed text and saved commands. onInput wraps in a term.input WS
+    // message, so the recognized text reaches the active PTY (and Claude Code /
+    // any other agent CLI running there) as real stdin — not just a local echo.
     LaunchedEffect(voiceText) {
         if (listening && voiceText.isNotEmpty()) {
             onInput(voiceText + "\n")
@@ -142,6 +148,9 @@ fun TerminalScreen(
             listening = false
         }
     }
+
+    // Saved commands
+    val savedCommands by PocketcodeApp.instance.savedCommands.commands.collectAsState()
 
     val cur = tabs.getOrNull(activeTab)
     var input by remember { mutableStateOf("") }
@@ -227,6 +236,16 @@ fun TerminalScreen(
                 }
             }
 
+            // ── Saved commands bar ────────────────────────────────────────────
+            // Shown even when the command list is empty (shows only the "+" chip),
+            // so users discover the feature immediately.
+            SavedCommandBar(
+                commands = savedCommands,
+                onRun = { cmd -> onInput(cmd) },
+                onAdd = { label, cmd -> PocketcodeApp.instance.savedCommands.add(label, cmd) },
+                onRemove = { id -> PocketcodeApp.instance.savedCommands.remove(id) },
+            )
+
             // ── Extra keys ───────────────────────────────────────────────────
             ExtraKeys(onSend = { onInput(it) })
 
@@ -285,17 +304,17 @@ fun TerminalScreen(
 private fun ExtraKeys(onSend: (String) -> Unit) {
     // Matches CodeMote's key bar: esc ctrl ->| ~ | / - left down up right
     val keys = listOf(
-        "esc"  to "\u001B",
-        "ctrl" to "\u0003",
+        "esc"  to "",
+        "ctrl" to "",
         "->|"  to "\t",
         "~"    to "~",
         "|"    to "|",
         "/"    to "/",
         "-"    to "-",
-        "<-"   to "\u001B[D",
-        "v"    to "\u001B[B",
-        "^"    to "\u001B[A",
-        "->"   to "\u001B[C",
+        "<-"   to "[D",
+        "v"    to "[B",
+        "^"    to "[A",
+        "->"   to "[C",
     )
     Row(
         Modifier
@@ -307,7 +326,7 @@ private fun ExtraKeys(onSend: (String) -> Unit) {
         keys.forEach { (label, payload) ->
             TextButton(
                 onClick = { onSend(payload) },
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Text(label, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Color(0xFFD1D5DB))
             }

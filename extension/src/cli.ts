@@ -3,7 +3,7 @@
  * pocketcode-cli — headless PocketCode server (no VS Code/Cursor required).
  *
  * Usage:
- *   node out/cli.js [cwd] [--port 0] [--tunnel local|auto|devtunnel|tailscale|tailscale-ip|ssh]
+ *   node out/cli.js [cwd] [--port 0] [--tunnel local|auto|devtunnel|tailscale|tailscale-ip|ssh|ngrok|cloudflare]
  *   npm run cli -- --tunnel local --port 8765
  *
  * Prints an ASCII QR + the pairing JSON payload so a phone can pair without
@@ -61,7 +61,7 @@ Usage:
 
 Options:
   --port <n>                   Local listen port (0 = ephemeral). Default: 0
-  --tunnel <name>              auto|local|devtunnel|tailscale|tailscale-ip|ssh
+  --tunnel <name>              auto|local|devtunnel|tailscale|tailscale-ip|ssh|ngrok|cloudflare
   --host <ip>                  Public host when --tunnel local (default: LAN IP)
   --ssh-target <user@host>     SSH reverse-tunnel target
   --token-expiry-minutes <n>   Pairing token lifetime (default: 10080 = 7d)

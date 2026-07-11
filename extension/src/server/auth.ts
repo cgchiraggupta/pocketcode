@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { hashToken } from '../security/token';
+import { hashToken, newToken } from '../security/token';
 
 export interface BoundDevice {
   id: string;
@@ -56,6 +56,27 @@ export class Auth extends EventEmitter {
       dev.lastSeenAt = Date.now();
     }
     return dev;
+  }
+
+  // Renew a token proactively if it expires within 6h.
+  // Issues a new token with the same device bindings; the old token remains
+  // valid for a 2-minute grace period so any in-flight reconnects still work.
+  // Returns { newRawToken, exp } if renewal happened, null if token is healthy.
+  renewIfExpiring(rawToken: string): { newRawToken: string; exp: number } | null {
+    const oldHash = hashToken(rawToken);
+    const rec = this.tokens.get(oldHash);
+    if (!rec) return null;
+    const remaining = rec.exp - Date.now();
+    if (remaining > 6 * 60 * 60 * 1000) return null;   // > 6h left, no renewal needed
+
+    const newRawToken = newToken();
+    const newHash = hashToken(newRawToken);
+    const newExp = Date.now() + this.expiryMs;
+    // Migrate device bindings to new record
+    this.tokens.set(newHash, { hash: newHash, exp: newExp, devices: new Map(rec.devices) });
+    // Keep the old token valid briefly so pending reconnects don't fail
+    setTimeout(() => this.tokens.delete(oldHash), 2 * 60 * 1000);
+    return { newRawToken, exp: newExp };
   }
 
   revokeDevice(rawToken: string, deviceId: string): boolean {

@@ -1,17 +1,23 @@
 package com.remotedev.pocketcode.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.remotedev.pocketcode.PocketcodeApp
 import com.remotedev.pocketcode.connection.ConnState
 import com.remotedev.pocketcode.files.FileTreeScreen
@@ -19,6 +25,33 @@ import com.remotedev.pocketcode.git.GitPanelScreen
 import com.remotedev.pocketcode.pairing.PairingQR
 import com.remotedev.pocketcode.pairing.QrParser
 import com.remotedev.pocketcode.pairing.QrScannerScreen
+
+// Simple glyph-based icons, matching the existing terminal's unicode-glyph
+// convention (⚡ ⏎ ▾) instead of pulling in the material-icons-extended
+// artifact just for five icons.
+private val NAV_ITEMS = listOf(
+    "▤" to "Files",
+    ">_" to "Terminal",
+    "⎇" to "Git",
+    "◆" to "Agent",
+    "▣" to "Pair",
+)
+
+@Composable
+private fun StatusDot(state: ConnState) {
+    val color = when (state) {
+        is ConnState.Connected -> Color(0xFF22C55E)
+        is ConnState.Connecting, is ConnState.Reconnecting -> Color(0xFFEAB308)
+        is ConnState.Error -> Color(0xFFEF4444)
+        else -> Color(0xFF6B7280)
+    }
+    Box(
+        Modifier
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(color)
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,15 +91,19 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
         TopAppBar(
             title = {
                 Column {
-                    Text(
-                        when (val s = connState) {
-                            is ConnState.Connected -> s.machine
-                            is ConnState.Connecting -> "Connecting…"
-                            is ConnState.Reconnecting -> "Reconnecting (${s.attempt})…"
-                            is ConnState.Error -> "Connection error"
-                            else -> if (machines.isEmpty()) "PocketCode" else machines.first().name
-                        }
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StatusDot(connState)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            when (val s = connState) {
+                                is ConnState.Connected -> s.machine
+                                is ConnState.Connecting -> "Connecting…"
+                                is ConnState.Reconnecting -> "Reconnecting (${s.attempt})…"
+                                is ConnState.Error -> "Connection error"
+                                else -> if (machines.isEmpty()) "PocketCode" else machines.first().name
+                            }
+                        )
+                    }
                     val subtitle = when (connState) {
                         is ConnState.Connected -> costUpdate?.let { "Connected · ~\$${"%.4f".format(it.usd)}" } ?: "Connected"
                         is ConnState.Connecting -> "Connecting"
@@ -93,8 +130,13 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     }, bottomBar = {
         if (!isLandscape) {
             NavigationBar {
-                listOf("Files", "Terminal", "Git", "Agent", "Pair").forEachIndexed { i, label ->
-                    NavigationBarItem(selected = tab == i, onClick = { tab = i }, label = { Text(label) }, icon = {})
+                NAV_ITEMS.forEachIndexed { i, (glyph, label) ->
+                    NavigationBarItem(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        label = { Text(label) },
+                        icon = { Text(glyph, fontSize = 17.sp) },
+                    )
                 }
             }
         }
@@ -102,8 +144,13 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
         Row(Modifier.padding(padding).fillMaxSize()) {
             if (isLandscape) {
                 NavigationRail {
-                    listOf("Files", "Terminal", "Git", "Agent", "Pair").forEachIndexed { i, label ->
-                        NavigationRailItem(selected = tab == i, onClick = { tab = i }, label = { Text(label) }, icon = {})
+                    NAV_ITEMS.forEachIndexed { i, (glyph, label) ->
+                        NavigationRailItem(
+                            selected = tab == i,
+                            onClick = { tab = i },
+                            label = { Text(label) },
+                            icon = { Text(glyph, fontSize = 17.sp) },
+                        )
                     }
                 }
             }
@@ -147,7 +194,11 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         onPaired = { qr -> pairAndConnect(qr) },
                         onManual = { showPasteDialog = true },
                     )
-                    5 -> com.remotedev.pocketcode.pairing.MachineListScreen(machines, onPick = { app.connection.connect(it) })
+                    5 -> com.remotedev.pocketcode.pairing.MachineListScreen(
+                        machines,
+                        onPick = { app.connection.connect(it) },
+                        onRemove = { app.machines.remove(it.id) },
+                    )
                 }
             }
         }
@@ -230,7 +281,7 @@ private fun jsonStr(s: String): String {
             '\r' -> sb.append("\\r")
             '\t' -> sb.append("\\t")
             '\b' -> sb.append("\\b")
-            '\u000C' -> sb.append("\\f")
+            '' -> sb.append("\\f")
             else -> if (c.code < 0x20) sb.append(String.format("\\u%04x", c.code)) else sb.append(c)
         }
     }

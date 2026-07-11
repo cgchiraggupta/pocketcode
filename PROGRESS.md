@@ -198,3 +198,101 @@ Deprioritized earlier. Only pick up if phones need public reach without tailscal
 - Mac: username `apple`. `JAVA_HOME=/opt/homebrew/opt/openjdk@17` required for Gradle builds.
 - Edit pattern for remote files: base64-encode content, `echo 'B64' | base64 -d > ~/path` via osascript `do shell script`; for surgical edits use Python `str.replace()` with `assert content.count(anchor) == 1` guards.
 - Chandar's standing instruction: keep this file (and CONTEXT.md) continuously updated in-repo so any fresh Claude session can resume instantly, even mid-task. Update after every meaningful chunk of work, not just at session end.
+
+---
+
+## What was actually done — Item #5 (COMPLETE, verified by a fresh Claude session)
+
+_Verified this session: independently re-ran `tsc --noEmit`, `npm run build`,
+`npm test` (fresh, non-cached), and Android `./gradlew :app:compileDebugKotlin
+:app:testDebugUnitTest --rerun` before touching anything, to confirm items
+#1-#4 above were real and not just claims in this file. Extension: 14/14 green.
+Android: 9/9 green (checked the actual JUnit XML results, not just Gradle's
+UP-TO-DATE cache). Then implemented #5 on top._
+
+Added `ngrok` and `cloudflare` as explicit `TunnelPref` options (CodeMote
+supports both; PocketCode only had devtunnel/tailscale/tailscale-ip/ssh/local).
+
+### Files changed
+- **`extension/src/tunnel/ngrok.ts`** (NEW) — `NgrokTunnel implements TunnelProvider`.
+  Spawns `ngrok http <port> --log=stdout`, then polls ngrok's own local
+  inspection API (`127.0.0.1:4040/api/tunnels`) for the first `https://` tunnel
+  URL rather than scraping stdout — the local API contract is stable across
+  ngrok versions, stdout log format isn't. `pollNgrokApi()` exported standalone
+  (injectable API URL + exit-check) so it's unit-testable without spawning a
+  real ngrok process.
+- **`extension/src/tunnel/cloudflare.ts`** (NEW) — `CloudflareTunnel implements
+  TunnelProvider`. Spawns `cloudflared tunnel --url http://localhost:<port>`
+  (Cloudflare's free "quick tunnel," no account needed — deliberately not the
+  named-tunnel flow, which requires a Cloudflare account/DNS setup).
+  `extractCloudflareUrl()` is a pure regex extractor pulled out for the same
+  testability reason as above.
+- **`extension/src/tunnel/index.ts`** — `TunnelPref` gained `'ngrok' |
+  'cloudflare'`. `detect()` wires both in as **explicit-only** choices — same
+  treatment as plain `'tailscale'` and `'ssh'` — deliberately **not** added to
+  the `'auto'` fallback cascade, since both need an external binary (and ngrok
+  typically an auth token too); `auto` should keep preferring the zero-setup
+  options (devtunnel → tailscale-ip → ssh → local) rather than silently
+  reaching for one of these.
+- **`extension/src/cli.ts`** — help text / usage comment updated to list the
+  two new `--tunnel` values.
+- **`extension/src/tunnel/ngrok.test.ts`**, **`cloudflare.test.ts`** (NEW) — 5
+  unit tests total: ngrok API-polling happy path, exit-abort path, timeout
+  path (using a real local `http` server as a stand-in for ngrok's API, no
+  network/external binary involved); cloudflare URL extraction from a
+  realistic banner, and the no-URL-yet case.
+
+### Verification done this session
+- `tsc --noEmit -p .` — clean.
+- `npm run build` — clean.
+- `npm test` — **19/19 pass** (14 pre-existing + 5 new).
+- Android `./gradlew :app:compileDebugKotlin` — BUILD SUCCESSFUL (untouched by
+  this item, extension-only change; confirmed via `git status` that only
+  extension files + the 4 new tunnel files show up as changed).
+- **NOT tested against a real `ngrok`/`cloudflared` binary** — no such binaries
+  in this sandboxed environment. The unit tests cover the parsing/polling
+  logic in isolation (via a local stand-in HTTP server for ngrok, and a
+  hardcoded realistic banner string for cloudflare) but the actual
+  `spawn('ngrok', ...)` / `spawn('cloudflared', ...)` code paths are
+  unexercised. **Recommend a real smoke test before relying on this**: install
+  `ngrok`/`cloudflared` on the Mac, run e.g.
+  `node out/cli.js --tunnel ngrok --port 18765` and
+  `node out/cli.js --tunnel cloudflare --port 18765`, confirm a real public URL
+  comes back and a phone can actually reach it.
+
+---
+
+## Status as of this session: all 5 CodeMote parity gaps are implemented and green
+
+| # | Gap | Status |
+|---|---|---|
+| 1 / 1b | Per-agent approve/reject + approval-prompt detection | ✅ DONE, compile/unit verified, not device-tested |
+| 2 | Reconnect resume / scrollback replay | ✅ DONE, compile/unit verified, not device-tested |
+| 3 | Live-updating notification w/ waiting state | ✅ DONE, compile/unit verified, not device-tested |
+| 4 | Headless CLI mode | ✅ DONE (MVP), smoke-tested locally with `--tunnel local`, not published to npm |
+| 5 | ngrok / Cloudflare tunnels | ✅ DONE, unit-tested, **not** tested against real ngrok/cloudflared binaries |
+
+**Nothing left from the original CodeMote parity list.** The common thread
+across all 5 items: everything is verified at compile-time and unit-test
+level, on this Mac, in this sandboxed session — but **none of it has been
+run end-to-end on an actual paired Android device** yet. That's the one
+real gap remaining before calling this "done done." Suggested device-test
+checklist for the next session (or for Chandar directly):
+1. Pair phone, run two terminals with a real agent CLI in each, trigger a
+   real y/n prompt in one — confirm only that terminal's notification fires
+   and Approve/Reject answers the right one (#1/#1b).
+2. Kill wifi mid-session, reconnect — confirm scrollback repaints instead of
+   showing blank (#2).
+3. Watch the notification shade / a locked phone through a Running → Waiting
+   → Running cycle — confirm it updates in place rather than stacking (#3).
+4. Run `node out/cli.js /some/repo --tunnel devtunnel` on a bare terminal
+   (no VS Code open) and pair from the phone — confirm it behaves like a
+   normal session (#4).
+5. If ngrok/cloudflared are installed: `--tunnel ngrok` / `--tunnel cloudflare`
+   and confirm a real public URL is returned and reachable (#5).
+
+Also still true from before, unrelated to this work, not touched: the
+pre-existing WIP (`android/.../commands/` SavedCommands dir, untracked
+`pty-helper.py`) remains uncommitted. Nothing has been committed by any
+session so far — `git log` HEAD is still `79ad46e`. Worth deciding when to
+commit everything as a checkpoint.
