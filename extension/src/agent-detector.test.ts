@@ -9,6 +9,26 @@ test('ApprovalDetector fires on common y/n prompts', () => {
   assert.match(snip!, /y\/n/i);
 });
 
+// Real CLI prompt shapes, transcribed from actual stdout. One per agent.
+// If a tool changes its prompt format, the corresponding test fails first.
+const CLI_PROMPTS: Array<[string, string]> = [
+  ['claude-code', 'Allow this action? Use Bash to run: rm -rf node_modules\n\n  1. Yes 2. No\n(y/n)'],
+  ['claude-code-dontask', 'Do you want to proceed?\n  ❯ 1. Yes\n    2. Yes, and don\'t ask again for this command (y/n)'],
+  ['codex', '  Allow command? [Y/n] '],
+  ['gemini', 'Do you want to continue? (Y/n)'],
+  ['aider', 'Allow edits to src/foo.ts? (y)es/(n)o '],
+  ['aider-confirm', 'Y, edit src/foo.ts?'],
+  ['generic-bracket', 'Run command? [y/N] '],
+];
+
+for (const [cli, prompt] of CLI_PROMPTS) {
+  test(`ApprovalDetector fires on ${cli} prompt shape`, () => {
+    const d = new ApprovalDetector();
+    const snip = d.check(`tab-${cli}`, prompt);
+    assert.ok(snip, `expected snippet for ${cli} prompt`);
+  });
+}
+
 test('ApprovalDetector cooldown suppresses re-fire on same tab', () => {
   const d = new ApprovalDetector();
   assert.ok(d.check('tab-a', 'Continue? (yes/no)'));

@@ -2,6 +2,14 @@
 
 _This file is the resume point. If a session gets cut, read this file first, then `CONTEXT.md` for full architecture._
 
+## ⚠️ Detour in progress: detector hardening (stash@{0}, uncommitted)
+
+The `ApprovalDetector` regex set was widened in WIP but **not device-tested**
+yet. Before shipping any release that depends on agent-approval notifications,
+run the **Detector gauntlet** section at the bottom of this file. Until then,
+this code is held in `git stash` — `git stash pop` to restore, do the test,
+commit only after it passes.
+
 ## Reference: CodeMote feature-parity gaps identified (2026-07-10)
 
 Source: https://www.producthunt.com/products/codemote-remote-control-for-any-ai
@@ -290,6 +298,39 @@ checklist for the next session (or for Chandar directly):
    normal session (#4).
 5. If ngrok/cloudflared are installed: `--tunnel ngrok` / `--tunnel cloudflare`
    and confirm a real public URL is returned and reachable (#5).
+
+### Detector gauntlet — pre-commit gate for `agent-detector.ts` changes
+
+The current `APPROVAL_PATTERNS` set is regex-coverage for the prompt shapes
+listed in `agent-detector.test.ts`. Those samples were written from spec,
+not captured from a running CLI. Before any change to the detector (or
+before shipping a release that depends on it), run this gauntlet on a
+real Mac with at least 3 of the 4 agents actually installed:
+
+```
+# one-time prep
+mkdir /tmp/pocketcode-gauntlet && cd /tmp/pocketcode-gauntlet
+git init -q && echo "# scratch" > README.md
+git add -A && git commit -qm init
+
+# per agent — install + run + trigger a y/n prompt
+claude code   # 1. ask it to edit a file 2. answer y when it asks
+aider         # 1. /ask "edit README.md" 2. answer y when it asks
+gemini cli    # 1. ask it to edit README.md 2. answer y when it asks
+codex         # 1. ask it to edit README.md 2. answer y when it asks
+```
+
+For each agent, copy the **literal bytes** of the prompt (incl. ANSI
+escapes — use `script -q` or `unbuffer`) into `agent-detector.test.ts` as
+a new row in `CLI_PROMPTS`. Run `npx tsx --test src/agent-detector.test.ts`
+and `npx tsx src/agent-detector.ts` — both must stay green. If a real
+prompt fails to fire, add a new pattern to `APPROVAL_PATTERNS` and a
+failing-first test for it (TDD order: capture → assert red → fix → green).
+
+When the gauntlet passes on 3+ agents, this section can shrink to "last
+verified against claude/aider/gemini on YYYY-MM-DD." Until then, the
+detector is "compile-clean, unit-tested against invented prompts" — same
+honest disclaimer as the rest of the device-test gaps above.
 
 Also still true from before, unrelated to this work, not touched: the
 pre-existing WIP (`android/.../commands/` SavedCommands dir, untracked

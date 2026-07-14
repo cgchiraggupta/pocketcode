@@ -205,9 +205,9 @@ export class Server extends EventEmitter {
       case 'git.diff': return { t: 'git.diff' as any, text: await this.git.diff(msg.path, msg.staged) } as any;
       case 'git.stage': await this.git.stage(msg.paths); return { t: 'git.status' as any, ...(await this.git.status() as any) } as any;
       case 'git.unstage': await this.git.unstage(msg.paths); return { t: 'git.status' as any, ...(await this.git.status() as any) } as any;
-      case 'git.commit': await this.git.commit(msg.message, msg.amend); return null;
-      case 'git.push': await this.git.push(); return null;
-      case 'git.pull': await this.git.pull(); return null;
+      case 'git.commit': await this.git.commit(msg.message, msg.amend); return { t: 'git.status' as any, ...(await this.git.status() as any) } as any;
+      case 'git.push': await this.git.push(); return { t: 'git.status' as any, ...(await this.git.status() as any) } as any;
+      case 'git.pull': await this.git.pull(); return { t: 'git.status' as any, ...(await this.git.status() as any) } as any;
       case 'git.branches': return { t: 'git.branches' as any, ...(await this.git.branches()) } as any;
       case 'git.checkout': await this.git.checkout(msg.name, msg.create); return null;
       case 'git.log': return { t: 'git.log' as any, entries: await this.git.log(msg.max) } as any;
