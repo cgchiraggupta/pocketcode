@@ -21,7 +21,12 @@ Usage:
 All arguments are optional.  Environment variables COLUMNS and LINES are
 also respected if the positional args are omitted.
 """
-import pty, os, sys, select, signal, struct, fcntl, termios, errno
+import pty, os, sys, select, signal, struct, fcntl, termios, errno, re
+
+# Out-of-band control message: parent (Node) sends this to resize the PTY
+# mid-session.  Intercepted in the stdin relay loop below — never forwarded
+# as keystrokes.  Format: \x00RESIZE:{cols}:{rows}\n
+RESIZE_RE = re.compile(rb'\x00RESIZE:(\d+):(\d+)\n')
 
 def set_winsize(fd, rows, cols):
     """Set the terminal window size on a PTY file descriptor."""
@@ -86,7 +91,21 @@ def main():
                     if not data:
                         # Node closed our stdin — shell session ending
                         break
-                    os.write(master_fd, data)
+                    # Strip out-of-band RESIZE controls, apply them, forward
+                    # the rest to the PTY master as keystrokes.
+                    m = RESIZE_RE.search(data)
+                    while m:
+                        cols_new = int(m.group(1))
+                        rows_new = int(m.group(2))
+                        try:
+                            set_winsize(master_fd, rows_new, cols_new)
+                            os.kill(pid, signal.SIGWINCH)
+                        except OSError:
+                            pass
+                        data = data[:m.start()] + data[m.end():]
+                        m = RESIZE_RE.search(data)
+                    if data:
+                        os.write(master_fd, data)
                 except OSError as e:
                     if e.errno in (errno.EIO, errno.EBADF):
                         break

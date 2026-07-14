@@ -2,7 +2,7 @@
   "name": "remotedev-pocketcode",
   "displayName": "RemoteDev (PocketCode)",
   "description": "Control this editor from your phone. Peer-to-peer, zero relay.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "pocketcode",
   "license": "MIT",
   "engines": {
@@ -123,13 +123,11 @@
     "cli": "node out/cli.js"
   },
   "dependencies": {
-    "node-pty": "^1.0.0",
     "qrcode": "^1.5.3",
     "simple-git": "^3.22.0",
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.1.0",
     "@types/node": "^20.10.0",
     "@types/qrcode": "^1.5.5",
     "@types/vscode": "^1.85.0",

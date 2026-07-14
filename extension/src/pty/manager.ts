@@ -153,11 +153,12 @@ export class PtyManager extends EventEmitter {
   }
 
   resize(id: string, cols: number, rows: number) {
-    // The Python helper sets initial size via TIOCSWINSZ.  For mid-session
-    // resize we send the xterm escape sequence which most shells honour.
+    // Out-of-band control sentinel.  pty-helper.py intercepts this in its
+    // stdin relay and calls set_winsize() + SIGWINCH instead of forwarding
+    // it as keystrokes (the old ANSI escape got typed into the shell).
     const s = this.tabs.get(id);
     if (s?.alive && s.proc.stdin) {
-      s.proc.stdin.write(`\x1b[8;${rows};${cols}t`);
+      s.proc.stdin.write(`\x00RESIZE:${cols}:${rows}\n`);
     }
   }
 
