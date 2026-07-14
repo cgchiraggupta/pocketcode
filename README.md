@@ -1,5 +1,7 @@
 # PocketCode
 
+<!-- Documentation touchpoint: README-only marker for non-functional change verification. -->
+
 **Control your code editor from your phone.** Peer-to-peer, zero relay.
 
 Scan a QR code and get a real terminal, file browser, Git controls, and live agent timeline on your phone.

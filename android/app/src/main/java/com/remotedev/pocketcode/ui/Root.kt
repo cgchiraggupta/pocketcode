@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -51,6 +52,42 @@ private fun StatusDot(state: ConnState) {
             .clip(CircleShape)
             .background(color)
     )
+}
+
+// Floating rounded pill nav (CodeMote-style segmented control) instead of a
+// full-bleed stock Material NavigationBar -- selected item picks up the
+// brand orange from ClaudeColors rather than the default M3 indicator pill.
+@Composable
+private fun FloatingBottomNav(selected: Int, onSelect: (Int) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = cs.surface,
+        tonalElevation = 3.dp,
+        shadowElevation = 6.dp,
+    ) {
+        Row(Modifier.padding(vertical = 6.dp, horizontal = 4.dp)) {
+            NAV_ITEMS.forEachIndexed { i, (glyph, label) ->
+                val isSelected = selected == i
+                val fg = if (isSelected) cs.primary else cs.onSurfaceVariant
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onSelect(i) }
+                        .padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(glyph, fontSize = 17.sp, color = fg)
+                    Spacer(Modifier.height(2.dp))
+                    Text(label, fontSize = 11.sp, color = fg)
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,16 +166,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
         )
     }, bottomBar = {
         if (!isLandscape) {
-            NavigationBar {
-                NAV_ITEMS.forEachIndexed { i, (glyph, label) ->
-                    NavigationBarItem(
-                        selected = tab == i,
-                        onClick = { tab = i },
-                        label = { Text(label) },
-                        icon = { Text(glyph, fontSize = 17.sp) },
-                    )
-                }
-            }
+            FloatingBottomNav(selected = tab, onSelect = { tab = it })
         }
     }) { padding ->
         Row(Modifier.padding(padding).fillMaxSize()) {
@@ -169,6 +197,10 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         activeTab = activeTerminalTab,
                         onActiveTabChange = { activeTerminalTab = it },
                         onAddTab = { app.connection.send("""{"t":"term.open"}""") },
+                        onCloseTab = { tabId ->
+                            app.connection.send("""{"t":"term.close","tab":"$tabId"}""")
+                            if (terminalTabs.getOrNull(activeTerminalTab)?.id == tabId) activeTerminalTab = 0
+                        },
                         onInput = { data ->
                             val curTab = terminalTabs.getOrNull(activeTerminalTab)
                             if (curTab != null) {

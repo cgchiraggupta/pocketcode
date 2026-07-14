@@ -7,12 +7,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -60,63 +63,95 @@ private fun get256Color(idx: Int): Color {
     return Color(0xFFE5E5E5)
 }
 
+private const val ESC = ''
+
+private fun applySgr(codeStr: String, current: Color): Color {
+    var curColor = current
+    val parts = codeStr.split(';').mapNotNull { it.toIntOrNull() }
+    var pIdx = 0
+    while (pIdx < parts.size) {
+        val code = parts[pIdx]
+        when {
+            code == 0 -> {
+                curColor = Color(0xFFE5E5E5)
+                pIdx++
+            }
+            code == 38 -> {
+                if (pIdx + 1 < parts.size) {
+                    val mode = parts[pIdx + 1]
+                    if (mode == 5 && pIdx + 2 < parts.size) {
+                        curColor = get256Color(parts[pIdx + 2])
+                        pIdx += 3
+                    } else if (mode == 2 && pIdx + 4 < parts.size) {
+                        curColor = Color(parts[pIdx + 2], parts[pIdx + 3], parts[pIdx + 4])
+                        pIdx += 5
+                    } else {
+                        pIdx++
+                    }
+                } else {
+                    pIdx++
+                }
+            }
+            code == 39 -> {
+                curColor = Color(0xFFE5E5E5)
+                pIdx++
+            }
+            code in 30..37 -> {
+                ANSI[code]?.let { curColor = it }
+                pIdx++
+            }
+            code in 90..97 -> {
+                ANSI[code]?.let { curColor = it }
+                pIdx++
+            }
+            else -> {
+                pIdx++
+            }
+        }
+    }
+    return curColor
+}
+
+// Parses CSI (ESC[...), OSC (ESC]...BEL/ST) and other two-byte escape
+// sequences. Previously this only handled SGR color codes and assumed every
+// CSI sequence ends in 'm' -- scanning for the next literal 'm' anywhere in
+// the string. Non-'m' CSI sequences (cursor movement, erase-line, etc, which
+// full-screen TUIs like Gemini CLI send constantly) made it swallow
+// unrelated text up to some later 'm' as if it were a color code. OSC
+// sequences (window title, shell-integration markers) weren't recognized at
+// all and leaked into the output as literal text (e.g. "]0;zsh%").
 fun renderAnsi(text: String): AnnotatedString = buildAnnotatedString {
     var i = 0; var curColor = Color(0xFFE5E5E5)
     while (i < text.length) {
-        if (text[i] == '' && i + 1 < text.length && text[i + 1] == '[') {
-            val end = text.indexOf('m', i + 2).takeIf { it > 0 } ?: text.length
-            val codeStr = text.substring(i + 2, end)
-            val parts = codeStr.split(';').mapNotNull { it.toIntOrNull() }
-
-            var pIdx = 0
-            while (pIdx < parts.size) {
-                val code = parts[pIdx]
-                when {
-                    code == 0 -> {
-                        curColor = Color(0xFFE5E5E5)
-                        pIdx++
-                    }
-                    code == 38 -> {
-                        if (pIdx + 1 < parts.size) {
-                            val mode = parts[pIdx + 1]
-                            if (mode == 5 && pIdx + 2 < parts.size) {
-                                val colorIdx = parts[pIdx + 2]
-                                curColor = get256Color(colorIdx)
-                                pIdx += 3
-                            } else if (mode == 2 && pIdx + 4 < parts.size) {
-                                val r = parts[pIdx + 2]
-                                val g = parts[pIdx + 3]
-                                val b = parts[pIdx + 4]
-                                curColor = Color(r, g, b)
-                                pIdx += 5
-                            } else {
-                                pIdx++
-                            }
-                        } else {
-                            pIdx++
-                        }
-                    }
-                    code == 39 -> {
-                        curColor = Color(0xFFE5E5E5)
-                        pIdx++
-                    }
-                    code in 30..37 -> {
-                        ANSI[code]?.let { curColor = it }
-                        pIdx++
-                    }
-                    code in 90..97 -> {
-                        ANSI[code]?.let { curColor = it }
-                        pIdx++
-                    }
-                    else -> {
-                        pIdx++
+        val c = text[i]
+        if (c == ESC && i + 1 < text.length) {
+            when (text[i + 1]) {
+                '[' -> {
+                    var j = i + 2
+                    while (j < text.length && text[j].code !in 0x40..0x7E) j++
+                    if (j < text.length) {
+                        if (text[j] == 'm') curColor = applySgr(text.substring(i + 2, j), curColor)
+                        i = j + 1
+                    } else {
+                        i = text.length
                     }
                 }
+                ']' -> {
+                    var j = i + 2
+                    while (j < text.length && text[j] != '\u0007' &&
+                        !(text[j] == ESC && j + 1 < text.length && text[j + 1] == '\\')
+                    ) j++
+                    i = when {
+                        j >= text.length -> text.length
+                        text[j] == '\u0007' -> j + 1
+                        else -> j + 2 // ESC \\
+                    }
+                }
+                else -> i += 2 // charset select / save-restore cursor / reset, etc.
             }
-            i = end + 1
         } else {
             pushStyle(SpanStyle(color = curColor))
-            append(text[i])
+            append(c)
             i++
         }
     }
@@ -128,6 +163,7 @@ fun TerminalScreen(
     activeTab: Int,
     onActiveTabChange: (Int) -> Unit,
     onAddTab: () -> Unit,
+    onCloseTab: (String) -> Unit,
     onInput: (String) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -168,28 +204,45 @@ fun TerminalScreen(
     }
 
     var showTabMenu by remember { mutableStateOf(false) }
+    val cs = MaterialTheme.colorScheme
 
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0E10))
+            .background(cs.background)
     ) {
-        // ── Top bar: "Terminal N ↓"  +  [⚡] [⌨] ─────────────────────────────
+        // ── Top bar: pill tab selector  +  [⚡] [✕] ──────────────────────────
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF1A1A1C))
+                .background(cs.surface)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.weight(1f)) {
-                TextButton(onClick = { showTabMenu = true }) {
-                    Text(
-                        text = if (cur != null) "${cur.title}  ▾" else "Terminal  ▾",
-                        color = Color(0xFFE5E5E5),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 15.sp,
-                    )
+                Surface(
+                    onClick = { showTabMenu = true },
+                    shape = RoundedCornerShape(50),
+                    color = cs.surfaceVariant,
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(if (cur?.alive == true) Color(0xFF22C55E) else cs.onSurfaceVariant)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (cur != null) "${cur.title}  ▾" else "Terminal  ▾",
+                            color = cs.onSurface,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 15.sp,
+                        )
+                    }
                 }
                 DropdownMenu(
                     expanded = showTabMenu,
@@ -199,6 +252,14 @@ fun TerminalScreen(
                         DropdownMenuItem(
                             text = { Text(t.title, fontFamily = FontFamily.Monospace) },
                             onClick = { onActiveTabChange(i); showTabMenu = false },
+                            trailingIcon = {
+                                TextButton(onClick = {
+                                    onCloseTab(t.id)
+                                    showTabMenu = false
+                                }) {
+                                    Text("✕", color = cs.error, fontSize = 14.sp)
+                                }
+                            },
                         )
                     }
                     DropdownMenuItem(
@@ -216,9 +277,15 @@ fun TerminalScreen(
             ) {
                 Text(
                     text = if (listening) "■" else "⚡",
-                    color = if (listening) Color(0xFFEF4444) else Color(0xFFE5E5E5),
+                    color = if (listening) cs.error else cs.onSurface,
                     fontSize = 18.sp,
                 )
+            }
+            // Close the current tab without opening the dropdown.
+            if (cur != null) {
+                TextButton(onClick = { onCloseTab(cur.id) }) {
+                    Text("✕", color = cs.error, fontSize = 18.sp)
+                }
             }
         }
 
@@ -253,7 +320,7 @@ fun TerminalScreen(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF1A1A1C))
+                    .background(cs.surface)
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -263,16 +330,17 @@ fun TerminalScreen(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     enabled = !listening,
-                    placeholder = { Text("›", color = Color(0xFF6B7280), fontFamily = FontFamily.Monospace) },
+                    shape = RoundedCornerShape(18.dp),
+                    placeholder = { Text("›", color = cs.onSurfaceVariant, fontFamily = FontFamily.Monospace) },
                     textStyle = LocalTextStyle.current.copy(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 14.sp,
-                        color = Color(0xFFE5E5E5),
+                        color = cs.onSurface,
                     ),
                     colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = Color(0xFF3A3A3C),
-                        focusedBorderColor = Color(0xFF6B7280),
-                        cursorColor = Color(0xFFE5E5E5),
+                        unfocusedBorderColor = cs.outline,
+                        focusedBorderColor = cs.primary,
+                        cursorColor = cs.onSurface,
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { submitInput() }),
@@ -281,6 +349,7 @@ fun TerminalScreen(
                 FilledTonalButton(
                     onClick = { submitInput() },
                     enabled = input.isNotEmpty() && !listening,
+                    shape = CircleShape,
                 ) {
                     Text("⏎", fontFamily = FontFamily.Monospace)  // ⏎
                 }
@@ -293,7 +362,7 @@ fun TerminalScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 TextButton(onClick = onAddTab) {
-                    Text("Tap to open a terminal", color = Color(0xFF6B7280))
+                    Text("Tap to open a terminal", color = cs.onSurfaceVariant)
                 }
             }
         }
@@ -316,19 +385,28 @@ private fun ExtraKeys(onSend: (String) -> Unit) {
         "^"    to "[A",
         "->"   to "[C",
     )
+    val cs = MaterialTheme.colorScheme
     Row(
         Modifier
             .fillMaxWidth()
-            .background(Color(0xFF1A1A1C))
+            .background(cs.surface)
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         keys.forEach { (label, payload) ->
-            TextButton(
+            Surface(
                 onClick = { onSend(payload) },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(8.dp),
+                color = cs.surfaceVariant,
             ) {
-                Text(label, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Color(0xFFD1D5DB))
+                Text(
+                    label,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
             }
         }
     }
