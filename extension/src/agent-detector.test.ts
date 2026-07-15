@@ -19,6 +19,7 @@ const CLI_PROMPTS: Array<[string, string]> = [
   ['aider', 'Allow edits to src/foo.ts? (y)es/(n)o '],
   ['aider-confirm', 'Y, edit src/foo.ts?'],
   ['generic-bracket', 'Run command? [y/N] '],
+  ['claude-code-trust-folder', 'Do you trust the files in this folder?\n\n  1. Yes, proceed\n  2. No, exit\n'],
 ];
 
 for (const [cli, prompt] of CLI_PROMPTS) {

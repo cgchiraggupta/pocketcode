@@ -32,6 +32,10 @@ const APPROVAL_PATTERNS: RegExp[] = [
   /:\s*[\[(]\s*[Yy]\s*\/\s*[Nn]\s*[\])]\s*$/m,
   // Claude Code's "Yes, and don't ask again" — still a y/n prompt underneath
   /don'?t ask again\s*\(?[Yy]\/?[Nn]?\)?/i,
+  // Claude Code's first-run "trust this folder" security dialog — a numbered
+  // menu (1. Yes / 2. No), not a y/n bracket, so nothing above caught it.
+  /do you trust the (files|folder)/i,
+  /^\s*\d\.\s*(yes|no)\b/im,
 ];
 
 // Don't re-fire for the same tab more than once per window — agents often
