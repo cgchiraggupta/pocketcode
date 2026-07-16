@@ -18,25 +18,74 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class AgentEvent(val ts: Long, val kind: String, val summary: String, val tab: String = "")
 
+/**
+ * Removes ANSI/VT control sequences from raw PTY text so the timeline heuristics
+ * match on the *visible* content, not escape codes. The old parser ran regexes
+ * straight over raw bytes and so tagged shell-integration OSC markers
+ * (`]697;StartPrompt`), colour codes (`[0m[27m`), and cursor moves (`[31B`) as
+ * "events" -- filling the Agent tab with garbage. Strip first, then classify.
+ */
+object AnsiStripper {
+    // CSI: ESC [ params intermediates final(@-~)
+    private val CSI = Regex("\u001B\\[[0-?]*[ -/]*[@-~]")
+    // OSC: ESC ] ... terminated by BEL(07) or ST(ESC \\) -- covers shell-integration 697/133 markers
+    private val OSC = Regex("\u001B\\][^\u0007\u001B]*(?:\u0007|\u001B\\\\)")
+    // Any other escape seq: ESC + one following byte (charset selects, ESC=, ESC>, stray ESC).
+    private val OTHER_ESC = Regex("\u001B.?")
+    // Remaining C0 control bytes except tab(09)/newline(0A), plus CR(0D) and DEL(7F).
+    private val CTRL = Regex("[\u0000-\u0008\u000B-\u001F\u007F]")
+
+    fun strip(text: String): String =
+        text.replace(CSI, "")
+            .replace(OSC, "")
+            .replace(OTHER_ESC, "")
+            .replace(CTRL, "")
+}
+
+/**
+ * High-precision, agent-agnostic activity classifier. Deliberately conservative:
+ * a mostly-empty but clean timeline beats a noisy one, so patterns only fire on
+ * clearly-structured lines and every match is de-duplicated against the last
+ * emitted summary (agents repaint the same line across many stdout chunks).
+ */
 object AgentEventParser {
-    private val FILE_CHANGED = Regex("(?:modified|created|wrote|saved|updated)\\s+[`']?([^\\s`']+)")
-    private val RAN_CMD      = Regex("\\$\\s+(.+)")   // ponytail: use containsMatchIn, not matches
-    private val TEST_RESULT  = Regex("(PASS|FAIL|tests?\\s+passed|✗|✓|\\d+\\s+passed)")
-    private val TOOL_USE     = Regex("<(bash|read_file|write_file|edit_file|search)>")
+    // "Edited src/foo.ts" / "Wrote README.md" / "Created x" -- word must be at line
+    // start so prose like "...just updated the plan" doesn't trip it.
+    private val FILE_CHANGED = Regex("^(?:Edited|Created|Wrote|Updated|Modified|Deleted|Added)\\s+([^\\s].*)$", RegexOption.IGNORE_CASE)
+    // A command echo: line literally begins with "$ " followed by a command.
+    private val RAN_CMD      = Regex("^\\$\\s+(\\S.*)$")
+    // Test summaries only -- "12 passed", "3 failed", "Tests: 5 passed". Bare
+    // ✓/✗ is NOT a signal: the zsh git prompt uses ✗.
+    private val TEST_RESULT  = Regex("\\b(\\d+\\s+(?:passed|failed|skipped)|Tests?:\\s*\\d+|PASSED|FAILED)\\b", RegexOption.IGNORE_CASE)
+
+    // Skip lines that are pure box-drawing / punctuation / spinner frames.
+    private val NOISE_ONLY = Regex("^[\\s\\p{Punct}│─┌┐└┘├┤┬┴┼╭╮╰╯▏▎▍▌▋▊▉█░▒▓⠀-⣿·•◆◇○●▶▷▸►]+$")
+
+    // De-dupe state: agents repaint, so the same summary streams repeatedly.
+    private var lastSummary: String = ""
 
     fun parse(chunk: String, tab: String, sink: (AgentEvent) -> Unit) {
-        for (line in chunk.lines()) {
-            val t = line.trim()
-            if (t.isEmpty()) continue
-            when {
-                TOOL_USE.containsMatchIn(t)     -> sink(AgentEvent(System.currentTimeMillis(), "tool",         t, tab))
-                FILE_CHANGED.containsMatchIn(t) -> sink(AgentEvent(System.currentTimeMillis(), "file_changed", t, tab))
-                TEST_RESULT.containsMatchIn(t)  -> sink(AgentEvent(System.currentTimeMillis(), "tests",        t, tab))
-                RAN_CMD.containsMatchIn(t)      -> sink(AgentEvent(System.currentTimeMillis(), "cmd",          t, tab))
+        for (rawLine in AnsiStripper.strip(chunk).lines()) {
+            val t = rawLine.trim()
+            if (t.isEmpty() || t.length < 3 || NOISE_ONLY.matches(t)) continue
+            val kind = when {
+                FILE_CHANGED.containsMatchIn(t) -> "file_changed"
+                RAN_CMD.containsMatchIn(t)      -> "cmd"
+                TEST_RESULT.containsMatchIn(t)  -> "tests"
+                else                            -> continue
             }
+            val summary = t.take(200)
+            if (summary == lastSummary) continue   // collapse repaint duplicates
+            lastSummary = summary
+            sink(AgentEvent(System.currentTimeMillis(), kind, summary, tab))
         }
     }
 }
+
+// Which approval prompts the user already answered. Process-scoped (not
+// `remember`) so answering one and navigating away doesn't resurrect its
+// Approve/Reject buttons when the Agent tab is reopened.
+private val resolvedApprovals = androidx.compose.runtime.mutableStateListOf<String>()
 
 private fun kindGlyph(kind: String) = when (kind) {
     "file_changed"      -> "✎"
@@ -79,12 +128,6 @@ fun AgentTimelineScreen(
         return
     }
 
-    // Approving/rejecting doesn't itself append a new event to the timeline
-    // (it just writes y\n/n\n to the pty), so track which prompts the user
-    // already answered locally -- otherwise the buttons on a stale prompt
-    // would stay tappable forever and could re-fire a response.
-    val resolved = remember { mutableStateOf(setOf<String>()) }
-
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -117,15 +160,15 @@ fun AgentTimelineScreen(
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (e.kind == "awaiting_approval" && eventKey !in resolved.value) {
+                    if (e.kind == "awaiting_approval" && eventKey !in resolvedApprovals) {
                         Row(Modifier.padding(top = 4.dp)) {
                             Button(
-                                onClick = { onApprove(e.tab); resolved.value = resolved.value + eventKey },
+                                onClick = { onApprove(e.tab); if (eventKey !in resolvedApprovals) resolvedApprovals.add(eventKey) },
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                             ) { Text("Approve", fontSize = 12.sp) }
                             Spacer(Modifier.width(8.dp))
                             OutlinedButton(
-                                onClick = { onReject(e.tab); resolved.value = resolved.value + eventKey },
+                                onClick = { onReject(e.tab); if (eventKey !in resolvedApprovals) resolvedApprovals.add(eventKey) },
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                             ) { Text("Reject", fontSize = 12.sp) }
                         }

@@ -14,14 +14,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.remotedev.pocketcode.PocketcodeApp
 import com.remotedev.pocketcode.commands.SavedCommandBar
-import com.remotedev.pocketcode.voice.VoiceInput
 
 data class Tab(
     val id: String,
@@ -44,25 +42,6 @@ fun TerminalScreen(
     onInput: (String) -> Unit,
     onResize: (tabId: String, cols: Int, rows: Int) -> Unit = { _, _, _ -> },
 ) {
-    val ctx = LocalContext.current
-    val voice = remember { VoiceInput(ctx) }
-    var listening by remember { mutableStateOf(false) }
-    val voiceText by voice.text.collectAsState()
-
-    DisposableEffect(Unit) { onDispose { voice.release() } }
-
-    // ponytail: voice recognition result routes through onInput, the same path
-    // used by typed text and saved commands. onInput wraps in a term.input WS
-    // message, so the recognized text reaches the active PTY (and Claude Code /
-    // any other agent CLI running there) as real stdin — not just a local echo.
-    LaunchedEffect(voiceText) {
-        if (listening && voiceText.isNotEmpty()) {
-            onInput(voiceText + "\n")
-            voice.text.value = ""
-            listening = false
-        }
-    }
-
     // Saved commands
     val savedCommands by PocketcodeApp.instance.savedCommands.commands.collectAsState()
 
@@ -83,7 +62,7 @@ fun TerminalScreen(
             .fillMaxSize()
             .background(cs.background)
     ) {
-        // ── Top bar: pill tab selector  +  [⚡] [✕] ──────────────────────────
+        // ── Top bar: pill tab selector (tap to switch / close / add tabs) ────
         Row(
             Modifier
                 .fillMaxWidth()
@@ -140,25 +119,6 @@ fun TerminalScreen(
                     )
                 }
             }
-            // Lightning bolt: voice input toggle
-            TextButton(
-                onClick = {
-                    if (listening) { voice.stop(); listening = false }
-                    else { voice.text.value = ""; voice.start(); listening = true }
-                },
-            ) {
-                Text(
-                    text = if (listening) "■" else "⚡",
-                    color = if (listening) cs.error else cs.onSurface,
-                    fontSize = 18.sp,
-                )
-            }
-            // Close the current tab without opening the dropdown.
-            if (cur != null) {
-                TextButton(onClick = { onCloseTab(cur.id) }) {
-                    Text("✕", color = cs.error, fontSize = 18.sp)
-                }
-            }
         }
 
         if (cur != null) {
@@ -193,11 +153,10 @@ fun TerminalScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
-                    value = if (listening) "(listening…)" else input,
-                    onValueChange = { if (!listening) input = it },
+                    value = input,
+                    onValueChange = { input = it },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    enabled = !listening,
                     shape = RoundedCornerShape(18.dp),
                     placeholder = { Text("›", color = cs.onSurfaceVariant, fontFamily = FontFamily.Monospace) },
                     textStyle = LocalTextStyle.current.copy(
@@ -216,7 +175,7 @@ fun TerminalScreen(
                 Spacer(Modifier.width(6.dp))
                 FilledTonalButton(
                     onClick = { submitInput() },
-                    enabled = input.isNotEmpty() && !listening,
+                    enabled = input.isNotEmpty(),
                     shape = CircleShape,
                 ) {
                     Text("⏎", fontFamily = FontFamily.Monospace)  // ⏎

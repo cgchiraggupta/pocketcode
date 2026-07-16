@@ -107,7 +107,9 @@ class ConnectionManager(private val ctx: Context) {
                             // 3 terminals had no way to tell which one needed attention.
                             val tab = obj["tab"]?.jsonPrimitive?.content ?: "agent-session"
                             val payloadStr = obj["payload"]?.toString() ?: ""
-                            val ev = AgentEvent(System.currentTimeMillis(), kind, payloadStr, tab)
+                            // Show a human-readable snippet, not the raw {"snippet":...} JSON blob.
+                            val summary = if (kind == "awaiting_approval") extractApprovalSnippet(payloadStr) else payloadStr
+                            val ev = AgentEvent(System.currentTimeMillis(), kind, summary, tab)
                             agentEvents.value = agentEvents.value + ev
                             val app = PocketcodeApp.instance
                             scope.launch {
