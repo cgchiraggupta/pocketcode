@@ -39,23 +39,29 @@ object AgentEventParser {
 }
 
 private fun kindGlyph(kind: String) = when (kind) {
-    "file_changed" -> "✎"
-    "cmd"          -> "\$"
-    "tests"        -> "✓"
-    "tool"         -> "⚙"
-    else           -> "·"
+    "file_changed"      -> "✎"
+    "cmd"               -> "\$"
+    "tests"             -> "✓"
+    "tool"              -> "⚙"
+    "awaiting_approval" -> "⏸"
+    else                -> "·"
 }
 
 private fun kindColor(kind: String) = when (kind) {
-    "file_changed" -> Color(0xFF3B82F6)
-    "cmd"          -> Color(0xFFEAB308)
-    "tests"        -> Color(0xFF22C55E)
-    "tool"         -> Color(0xFFA855F7)
-    else           -> Color(0xFF6B7280)
+    "file_changed"      -> Color(0xFF3B82F6)
+    "cmd"               -> Color(0xFFEAB308)
+    "tests"             -> Color(0xFF22C55E)
+    "tool"              -> Color(0xFFA855F7)
+    "awaiting_approval" -> Color(0xFFEF4444)
+    else                -> Color(0xFF6B7280)
 }
 
 @Composable
-fun AgentTimelineScreen(events: List<AgentEvent>) {
+fun AgentTimelineScreen(
+    events: List<AgentEvent>,
+    onApprove: (String) -> Unit = {},
+    onReject: (String) -> Unit = {},
+) {
     val listState = rememberLazyListState()
 
     LaunchedEffect(events.size) {
@@ -73,6 +79,12 @@ fun AgentTimelineScreen(events: List<AgentEvent>) {
         return
     }
 
+    // Approving/rejecting doesn't itself append a new event to the timeline
+    // (it just writes y\n/n\n to the pty), so track which prompts the user
+    // already answered locally -- otherwise the buttons on a stale prompt
+    // would stay tappable forever and could re-fire a response.
+    val resolved = remember { mutableStateOf(setOf<String>()) }
+
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -81,6 +93,7 @@ fun AgentTimelineScreen(events: List<AgentEvent>) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(events, key = { "${it.ts}-${it.kind}-${it.summary.hashCode()}" }) { e ->
+            val eventKey = "${e.ts}-${e.kind}-${e.summary.hashCode()}"
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 verticalAlignment = Alignment.Top,
@@ -104,6 +117,19 @@ fun AgentTimelineScreen(events: List<AgentEvent>) {
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (e.kind == "awaiting_approval" && eventKey !in resolved.value) {
+                        Row(Modifier.padding(top = 4.dp)) {
+                            Button(
+                                onClick = { onApprove(e.tab); resolved.value = resolved.value + eventKey },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            ) { Text("Approve", fontSize = 12.sp) }
+                            Spacer(Modifier.width(8.dp))
+                            OutlinedButton(
+                                onClick = { onReject(e.tab); resolved.value = resolved.value + eventKey },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            ) { Text("Reject", fontSize = 12.sp) }
+                        }
+                    }
                 }
             }
             HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)

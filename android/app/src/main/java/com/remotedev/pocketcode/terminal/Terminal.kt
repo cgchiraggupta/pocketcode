@@ -3,9 +3,6 @@ package com.remotedev.pocketcode.terminal
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,9 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -33,129 +27,12 @@ data class Tab(
     val id: String,
     val title: String,
     val alive: Boolean = true,
-    val lines: List<AnnotatedString> = emptyList()
+    // Raw PTY output (post-JSON-decode, pre-ANSI-interpretation). Rendering
+    // (colors, cursor movement, TUI redraws) is handled by xterm.js in
+    // XtermTerminalView -- see that file for why a hand-rolled line-by-line
+    // parser couldn't represent full-screen apps like Codex/Gemini/Claude Code.
+    val raw: String = ""
 )
-
-// Minimal ANSI 16-color parser. Extend with 256/truecolor when needed.
-private val ANSI = mapOf(
-    30 to Color(0xFF1E1E1E), 31 to Color(0xFFEF4444), 32 to Color(0xFF22C55E), 33 to Color(0xFFEAB308),
-    34 to Color(0xFF3B82F6), 35 to Color(0xFFA855F7), 36 to Color(0xFF06B6D4), 37 to Color(0xFFE5E5E5),
-    90 to Color(0xFF6B7280), 91 to Color(0xFFF87171), 92 to Color(0xFF4ADE80), 93 to Color(0xFFFACC15),
-    94 to Color(0xFF60A5FA), 95 to Color(0xFFC084FC), 96 to Color(0xFF22D3EE), 97 to Color(0xFFF5F5F5),
-)
-
-private fun get256Color(idx: Int): Color {
-    if (idx in 0..15) {
-        val mapped = if (idx < 8) 30 + idx else 90 + (idx - 8)
-        return ANSI[mapped] ?: Color(0xFFE5E5E5)
-    }
-    if (idx in 16..231) {
-        val r = ((idx - 16) / 36) % 6
-        val g = ((idx - 16) / 6) % 6
-        val b = (idx - 16) % 6
-        val levels = intArrayOf(0, 95, 135, 175, 215, 255)
-        return Color(levels[r], levels[g], levels[b])
-    }
-    if (idx in 232..255) {
-        val g = 8 + (idx - 232) * 10
-        return Color(g, g, g)
-    }
-    return Color(0xFFE5E5E5)
-}
-
-private const val ESC = ''
-
-private fun applySgr(codeStr: String, current: Color): Color {
-    var curColor = current
-    val parts = codeStr.split(';').mapNotNull { it.toIntOrNull() }
-    var pIdx = 0
-    while (pIdx < parts.size) {
-        val code = parts[pIdx]
-        when {
-            code == 0 -> {
-                curColor = Color(0xFFE5E5E5)
-                pIdx++
-            }
-            code == 38 -> {
-                if (pIdx + 1 < parts.size) {
-                    val mode = parts[pIdx + 1]
-                    if (mode == 5 && pIdx + 2 < parts.size) {
-                        curColor = get256Color(parts[pIdx + 2])
-                        pIdx += 3
-                    } else if (mode == 2 && pIdx + 4 < parts.size) {
-                        curColor = Color(parts[pIdx + 2], parts[pIdx + 3], parts[pIdx + 4])
-                        pIdx += 5
-                    } else {
-                        pIdx++
-                    }
-                } else {
-                    pIdx++
-                }
-            }
-            code == 39 -> {
-                curColor = Color(0xFFE5E5E5)
-                pIdx++
-            }
-            code in 30..37 -> {
-                ANSI[code]?.let { curColor = it }
-                pIdx++
-            }
-            code in 90..97 -> {
-                ANSI[code]?.let { curColor = it }
-                pIdx++
-            }
-            else -> {
-                pIdx++
-            }
-        }
-    }
-    return curColor
-}
-
-// Parses CSI (ESC[...), OSC (ESC]...BEL/ST) and other two-byte escape
-// sequences. Previously this only handled SGR color codes and assumed every
-// CSI sequence ends in 'm' -- scanning for the next literal 'm' anywhere in
-// the string. Non-'m' CSI sequences (cursor movement, erase-line, etc, which
-// full-screen TUIs like Gemini CLI send constantly) made it swallow
-// unrelated text up to some later 'm' as if it were a color code. OSC
-// sequences (window title, shell-integration markers) weren't recognized at
-// all and leaked into the output as literal text (e.g. "]0;zsh%").
-fun renderAnsi(text: String): AnnotatedString = buildAnnotatedString {
-    var i = 0; var curColor = Color(0xFFE5E5E5)
-    while (i < text.length) {
-        val c = text[i]
-        if (c == ESC && i + 1 < text.length) {
-            when (text[i + 1]) {
-                '[' -> {
-                    var j = i + 2
-                    while (j < text.length && text[j].code !in 0x40..0x7E) j++
-                    if (j < text.length) {
-                        if (text[j] == 'm') curColor = applySgr(text.substring(i + 2, j), curColor)
-                        i = j + 1
-                    } else {
-                        i = text.length
-                    }
-                }
-                ']' -> {
-                    var j = i + 2
-                    while (j < text.length && text[j] != '\u0007' &&
-                        !(text[j] == ESC && j + 1 < text.length && text[j + 1] == '\\')
-                    ) j++
-                    i = when {
-                        j >= text.length -> text.length
-                        text[j] == '\u0007' -> j + 1
-                        else -> j + 2 // ESC \\
-                    }
-                }
-                else -> i += 2 // charset select / save-restore cursor / reset, etc.
-            }
-        } else {
-            pushStyle(SpanStyle(color = curColor))
-            append(c)
-            i++
-        }
-    }
-}
 
 @Composable
 fun TerminalScreen(
@@ -164,7 +41,8 @@ fun TerminalScreen(
     onActiveTabChange: (Int) -> Unit,
     onAddTab: () -> Unit,
     onCloseTab: (String) -> Unit,
-    onInput: (String) -> Unit
+    onInput: (String) -> Unit,
+    onResize: (tabId: String, cols: Int, rows: Int) -> Unit = { _, _, _ -> },
 ) {
     val ctx = LocalContext.current
     val voice = remember { VoiceInput(ctx) }
@@ -190,12 +68,6 @@ fun TerminalScreen(
 
     val cur = tabs.getOrNull(activeTab)
     var input by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(cur?.lines?.size) {
-        val lineCount = cur?.lines?.size ?: 0
-        if (lineCount > 0) listState.animateScrollToItem(lineCount - 1)
-    }
 
     fun submitInput() {
         if (input.isEmpty()) return
@@ -290,18 +162,14 @@ fun TerminalScreen(
         }
 
         if (cur != null) {
-            // ── Terminal output ───────────────────────────────────────────────
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                items(cur.lines) { line ->
-                    Text(line, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                }
-            }
+            // ── Terminal output: real terminal emulator, not a text list ──────
+            XtermTerminalView(
+                tabId = cur.id,
+                raw = cur.raw,
+                onInput = onInput,
+                onResize = { cols, rows -> onResize(cur.id, cols, rows) },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
 
             // ── Saved commands bar ────────────────────────────────────────────
             // Shown even when the command list is empty (shows only the "+" chip),

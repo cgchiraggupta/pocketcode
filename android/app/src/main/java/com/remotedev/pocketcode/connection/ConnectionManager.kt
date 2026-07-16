@@ -41,6 +41,8 @@ sealed class ConnState {
     object Disconnected : ConnState()
 }
 
+private const val RAW_BUFFER_CAP = 200_000 // chars of raw PTY text kept per tab
+
 class ConnectionManager(private val ctx: Context) {
     val json = Json { ignoreUnknownKeys = true; classDiscriminator = "t" }
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -148,17 +150,17 @@ class ConnectionManager(private val ctx: Context) {
                         "term.replay" -> {
                             // Server's capped scrollback buffer for a tab, sent right after
                             // term.list on every (re)connect. Treated as authoritative --
-                            // REPLACES local lines for that tab rather than appending, since
-                            // otherwise a quick reconnect where nothing was actually missed
-                            // would duplicate everything already rendered locally.
+                            // REPLACES local raw buffer for that tab rather than appending,
+                            // since otherwise a quick reconnect where nothing was actually
+                            // missed would duplicate everything already rendered locally.
+                            // Rendering itself (colors, cursor movement, TUI redraws) is done
+                            // by xterm.js in XtermTerminalView, not here -- we just keep the
+                            // raw PTY text and let resetAndWrite() replay it into a fresh
+                            // terminal buffer on tab switch.
                             val tabId = obj["tab"]?.jsonPrimitive?.content ?: return@runCatching
                             val data = obj["data"]?.jsonPrimitive?.content ?: ""
-                            val newLines = data.split('\n').map { line ->
-                                com.remotedev.pocketcode.terminal.renderAnsi(line)
-                            }
-                            val capped = if (newLines.size > 2000) newLines.takeLast(2000) else newLines
                             terminalTabs.value = terminalTabs.value.map { tab ->
-                                if (tab.id == tabId) tab.copy(lines = capped) else tab
+                                if (tab.id == tabId) tab.copy(raw = data.takeLast(RAW_BUFFER_CAP)) else tab
                             }
                             // Intentionally NOT fed through AgentEventParser or CostTracker --
                             // this is historical output that was already processed (or should
@@ -171,16 +173,10 @@ class ConnectionManager(private val ctx: Context) {
                             val data = obj["data"]?.jsonPrimitive?.content ?: ""
                             terminalTabs.value = terminalTabs.value.map { tab ->
                                 if (tab.id == tabId) {
-                                    // Split chunk into lines so each line renders separately.
-                                    // Keep a trailing partial line (no newline yet) as the last
-                                    // entry so it gets appended on the next chunk.
-                                    val newLines = data.split('\n').map { line ->
-                                        com.remotedev.pocketcode.terminal.renderAnsi(line)
-                                    }
-                                    val merged = tab.lines + newLines
-                                    // Cap at 2000 lines to prevent OOM on long sessions
-                                    val capped = if (merged.size > 2000) merged.takeLast(2000) else merged
-                                    tab.copy(lines = capped)
+                                    // Cap at RAW_BUFFER_CAP chars to prevent OOM on long
+                                    // sessions -- XtermTerminalView notices raw got shorter
+                                    // and does a full resync instead of an incremental write.
+                                    tab.copy(raw = (tab.raw + data).takeLast(RAW_BUFFER_CAP))
                                 } else {
                                     tab
                                 }
@@ -217,10 +213,7 @@ class ConnectionManager(private val ctx: Context) {
                             val code = obj["code"]?.jsonPrimitive?.intOrNull ?: 0
                             terminalTabs.value = terminalTabs.value.map { tab ->
                                 if (tab.id == tabId) {
-                                    val exitMsg = androidx.compose.ui.text.buildAnnotatedString {
-                                        append("\n[Process exited with code $code]\n")
-                                    }
-                                    tab.copy(alive = false, lines = tab.lines + exitMsg)
+                                    tab.copy(alive = false, raw = tab.raw + "\r\n[Process exited with code $code]\r\n")
                                 } else {
                                     tab
                                 }

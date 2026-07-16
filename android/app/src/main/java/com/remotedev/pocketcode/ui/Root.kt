@@ -206,6 +206,9 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                             if (curTab != null) {
                                 app.connection.send("""{"t":"term.input","tab":"${curTab.id}","data":${jsonStr(data)}}""")
                             }
+                        },
+                        onResize = { tabId, cols, rows ->
+                            app.connection.send("""{"t":"term.resize","tab":"$tabId","cols":$cols,"rows":$rows}""")
                         }
                     )
                     2 -> GitPanelScreen(
@@ -221,7 +224,11 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         onPush = { app.connection.send("""{"t":"git.push"}""") },
                         onSwitchBranch = { name -> app.connection.send("""{"t":"git.checkout","name":${jsonStr(name)}}""") }
                     )
-                    3 -> com.remotedev.pocketcode.agent.AgentTimelineScreen(agentEvents)
+                    3 -> com.remotedev.pocketcode.agent.AgentTimelineScreen(
+                        events = agentEvents,
+                        onApprove = { tabId -> app.connection.send("""{"t":"agent.approve","session":"$tabId"}""") },
+                        onReject = { tabId -> app.connection.send("""{"t":"agent.reject","session":"$tabId"}""") },
+                    )
                     4 -> QrScannerScreen(
                         onPaired = { qr -> pairAndConnect(qr) },
                         onManual = { showPasteDialog = true },

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<link rel="stylesheet" href="xterm.css">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #0F0F10; overflow: hidden; }
+  #term { height: 100%; width: 100%; }
+  .xterm { padding: 4px 8px; }
+</style>
+</head>
+<body>
+<div id="term"></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+  const term = new Terminal({
+    fontFamily: 'monospace',
+    fontSize: 12,
+    convertEol: false,
+    scrollback: 5000,
+    theme: {
+      background: '#0F0F10',
+      foreground: '#E8E3DD',
+      cursor: '#E8E3DD',
+      black: '#1E1E1E', red: '#EF4444', green: '#22C55E', yellow: '#EAB308',
+      blue: '#3B82F6', magenta: '#A855F7', cyan: '#06B6D4', white: '#E5E5E5',
+      brightBlack: '#6B7280', brightRed: '#F87171', brightGreen: '#4ADE80', brightYellow: '#FACC15',
+      brightBlue: '#60A5FA', brightMagenta: '#C084FC', brightCyan: '#22D3EE', brightWhite: '#F5F5F5',
+    },
+  });
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(document.getElementById('term'));
+
+  function fit() {
+    try {
+      fitAddon.fit();
+      if (window.Android && window.Android.onResize) {
+        window.Android.onResize(term.cols, term.rows);
+      }
+    } catch (e) {}
+  }
+  fit();
+  window.addEventListener('resize', fit);
+  new ResizeObserver(fit).observe(document.getElementById('term'));
+
+  // Bridge: raw text arrives base64-encoded (UTF-8) from Kotlin to sidestep
+  // JS-string-escaping control characters/quotes in evaluateJavascript calls.
+  function b64ToUtf8(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+
+  window.writeChunk = function(b64) { term.write(b64ToUtf8(b64)); };
+  window.resetAndWrite = function(b64) { term.reset(); term.write(b64ToUtf8(b64)); };
+
+  term.onData(function(data) {
+    if (window.Android && window.Android.onInput) window.Android.onInput(data);
+  });
+</script>
+</body>
+</html>
