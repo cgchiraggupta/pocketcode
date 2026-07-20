@@ -61,6 +61,7 @@ class ConnectionManager(private val ctx: Context) {
     val fileTree = MutableStateFlow<List<FsNode>>(emptyList())
     val gitStatus = MutableStateFlow<GitStatus>(GitStatus())
     val gitDiff = MutableStateFlow<String>("")
+    val gitFeedback = MutableStateFlow<String?>(null)
     val agentEvents = MutableStateFlow<List<AgentEvent>>(emptyList())
     private val costState = CostTracker.State()
     val costFlow = MutableStateFlow<CostUpdate?>(null)
@@ -94,6 +95,19 @@ class ConnectionManager(private val ctx: Context) {
                         "git.status" -> {
                             val status = json.decodeFromJsonElement<GitStatus>(element)
                             gitStatus.value = status
+                        }
+                        "git.result" -> {
+                            val status = json.decodeFromJsonElement<GitStatus>(element)
+                            gitStatus.value = status
+                            val branch = status.current ?: "current branch"
+                            gitFeedback.value = when (obj["action"]?.jsonPrimitive?.content) {
+                                "stage" -> "Changes staged — ready to commit locally."
+                                "unstage" -> "Changes unstaged."
+                                "commit" -> "Committed locally — tap Push to origin to publish it."
+                                "push" -> "Pushed to origin/$branch — local and remote are in sync."
+                                "pull" -> "Pulled the latest changes from origin/$branch."
+                                else -> "Git operation completed."
+                            }
                         }
                         "git.diff" -> {
                             val text = obj["text"]?.jsonPrimitive?.content ?: ""

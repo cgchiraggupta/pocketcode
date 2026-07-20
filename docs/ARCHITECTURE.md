@@ -52,7 +52,7 @@ WS discriminated union in `extension/src/server/protocol.ts`.
 |------------------|---------------|-----------------------------------------------|
 | `term.*`         | bidirectional | PTY lifecycle, I/O, resize, tab list          |
 | `fs.*`           | client→server | File tree, read, write, mkdir, rename, delete |
-| `git.*`          | client→server | Status, diff, stage, commit, push, pull, log  |
+| `git.*`          | client→server | Status, diff, stage, commit, push, pull, log; mutations reply with `git.result` + fresh status |
 | `devservers`     | client→server | List running processes (managed + unmanaged)  |
 | `devserver.start`| client→server | Launch a managed dev-server process           |
 | `devserver.stop` | client→server | Kill a managed dev-server process             |

@@ -32,6 +32,7 @@ private fun statusColor(index: String, working: String): Color = when {
 fun GitPanelScreen(
     status: GitStatus,
     diffText: String,
+    feedback: String?,
     onRequestDiff: (String, Boolean) -> Unit,
     onClearDiff: () -> Unit,
     onStage: (List<String>) -> Unit,
@@ -136,6 +137,14 @@ fun GitPanelScreen(
                 .background(MaterialTheme.colorScheme.surface)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
+            feedback?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+            }
             OutlinedTextField(
                 value = msg,
                 onValueChange = { msg = it },

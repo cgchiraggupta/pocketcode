@@ -104,6 +104,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     val fileTree by app.connection.fileTree.collectAsState()
     val gitStatus by app.connection.gitStatus.collectAsState()
     val gitDiff by app.connection.gitDiff.collectAsState()
+    val gitFeedback by app.connection.gitFeedback.collectAsState()
     val agentEvents by app.connection.agentEvents.collectAsState()
     val terminalTabs by app.connection.terminalTabs.collectAsState()
     val costUpdate by app.connection.costFlow.collectAsState()
@@ -222,6 +223,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                     2 -> GitPanelScreen(
                         status = gitStatus,
                         diffText = gitDiff,
+                        feedback = gitFeedback,
                         onRequestDiff = { path, staged ->
                             app.connection.send("""{"t":"git.diff","path":${jsonStr(path)},"staged":$staged}""")
                         },

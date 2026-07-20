@@ -47,6 +47,9 @@ export type WsMsg =
   | { t: 'git.branches' }
   | { t: 'git.checkout'; name: string; create?: boolean }
   | { t: 'git.log'; max?: number }
+  // Server acknowledgement for a completed Git mutation. Includes the fresh
+  // porcelain status so clients can update the file list and stateful UI together.
+  | { t: 'git.result'; action: 'stage' | 'unstage' | 'commit' | 'push' | 'pull'; current?: string | null; files: Array<unknown> }
 
   | { t: 'devservers' }
   | { t: 'devserver.start'; cmd: string; cwd?: string }        // launch a tracked dev server process
