@@ -195,7 +195,12 @@ export class Server extends EventEmitter {
 
       case 'fs.tree': return { t: 'fs.tree' as any, ...(await this.tree(msg.path, msg.depth)) } as any;
       case 'fs.read': return { t: 'fs.read' as any, path: msg.path, content: await this.files.read(msg.path) } as any;
-      case 'fs.write': await this.files.write(msg.path, (msg as any).content); return null;
+      // A mobile save can change the repository state while the Git panel is
+      // already open. Return the refreshed status in the same response so the
+      // client never has to guess whether it should reload the changed-files list.
+      case 'fs.write':
+        await this.files.write(msg.path, (msg as any).content);
+        return { t: 'git.status' as any, ...(await this.git.status() as any) } as any;
       case 'fs.mkdir': await this.files.mkdir(msg.path); return null;
       case 'fs.rename': await this.files.rename((msg as any).from, (msg as any).to); return null;
       case 'fs.delete': await this.files.delete(msg.path, (msg as any).recursive); return null;
