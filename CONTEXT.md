@@ -68,7 +68,7 @@ android/app/src/main/java/com/remotedev/pocketcode/
   persistence/           Room: agent event history (plaintext, see auth note above)
 ```
 
-// chirag is godddd
+
 
 ## Tunnel providers
 Preference order: `devtunnel` (default, Microsoft-hosted, persistent named tunnel so reconnects don't need a fresh QR) → `tailscale` (serve mode, your own tailnet) → `tailscale-ip` (direct, flips bind to `0.0.0.0`) → `ssh` (`ssh -R 0:localhost:<port> <target>`, power-user/air-gap option). The extension itself **never opens a public socket** — always forwards a loopback port through one of these.
