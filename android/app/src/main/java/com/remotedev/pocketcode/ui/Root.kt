@@ -112,9 +112,14 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val isImeVisible = WindowInsets.isImeVisible
 
+    fun selectTab(index: Int) {
+        tab = index
+        if (index == 2) app.connection.send("""{"t":"git.status"}""")
+    }
+
     LaunchedEffect(openDiffFor) {
         if (openDiffFor != null) {
-            tab = 2
+            selectTab(2)
             clearOpenDiffFor(null)
         }
     }
@@ -169,7 +174,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
         // The keyboard covers the floating navigation. Do not reserve that
         // bar's height as empty space above the IME while entering a command.
         if (!isLandscape && !isImeVisible) {
-            FloatingBottomNav(selected = tab, onSelect = { tab = it })
+            FloatingBottomNav(selected = tab, onSelect = ::selectTab)
         }
     }) { padding ->
         Row(Modifier.padding(padding).fillMaxSize()) {
@@ -178,7 +183,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                     NAV_ITEMS.forEachIndexed { i, (glyph, label) ->
                         NavigationRailItem(
                             selected = tab == i,
-                            onClick = { tab = i },
+                            onClick = { selectTab(i) },
                             label = { Text(label) },
                             icon = { Text(glyph, fontSize = 17.sp) },
                         )
