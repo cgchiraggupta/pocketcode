@@ -14,7 +14,7 @@ const IGNORE = new Set(['node_modules', '.git', '.DS_Store', 'dist', 'out', 'bui
 export class FilesManager {
   constructor(private root: string) {}
 
-  async tree(rel = '.', depth = 4): Promise<FsNode[]> {
+  async tree(rel = '.', depth = 8): Promise<FsNode[]> {
     const abs = this.resolve(rel);
     const stat = await fs.stat(abs);
     if (!stat.isDirectory()) {

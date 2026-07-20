@@ -109,6 +109,14 @@ class ConnectionManager(private val ctx: Context) {
                             val payloadStr = obj["payload"]?.toString() ?: ""
                             // Show a human-readable snippet, not the raw {"snippet":...} JSON blob.
                             val summary = if (kind == "awaiting_approval") extractApprovalSnippet(payloadStr) else payloadStr
+                            if (kind == "awaiting_approval") {
+                                // A CLI often repaints the same unanswered prompt in
+                                // several chunks. Admit only the first event for a tab
+                                // until the user answers it.
+                                if (!AgentLiveTracker.apply(tab, LiveAgentState.Waiting(summary))) {
+                                    return@runCatching
+                                }
+                            }
                             val ev = AgentEvent(System.currentTimeMillis(), kind, summary, tab)
                             agentEvents.value = agentEvents.value + ev
                             val app = PocketcodeApp.instance
@@ -124,11 +132,8 @@ class ConnectionManager(private val ctx: Context) {
                             // same per-tab notification id (in-place update). Other kinds
                             // stay informational one-shots so they don't stomp the live card.
                             if (kind == "awaiting_approval") {
-                                val snippet = extractApprovalSnippet(payloadStr)
-                                if (AgentLiveTracker.apply(tab, LiveAgentState.Waiting(snippet))) {
-                                    val title = terminalTabs.value.firstOrNull { it.id == tab }?.title
-                                    Notifier.updateLive(ctx, tab, LiveAgentState.Waiting(snippet), title)
-                                }
+                                val title = terminalTabs.value.firstOrNull { it.id == tab }?.title
+                                Notifier.updateLive(ctx, tab, LiveAgentState.Waiting(summary), title)
                             } else {
                                 Notifier.showInfo(ctx, "Agent: $kind", payloadStr, tab)
                             }
@@ -343,6 +348,14 @@ class ConnectionManager(private val ctx: Context) {
     fun send(jsonMsg: String) {
         val s = _state.value
         if (s is ConnState.Connected) s.ws.send(jsonMsg)
+    }
+
+    fun respondToApproval(tabId: String, approve: Boolean) {
+        val action = if (approve) "agent.approve" else "agent.reject"
+        send("""{"t":"$action","session":"$tabId"}""")
+        AgentLiveTracker.apply(tabId, LiveAgentState.Running, force = true)
+        val title = terminalTabs.value.firstOrNull { it.id == tabId }?.title
+        Notifier.updateLive(ctx, tabId, LiveAgentState.Running, title)
     }
 
     fun disconnect() {

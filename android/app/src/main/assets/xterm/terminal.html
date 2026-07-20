@@ -8,6 +8,7 @@
   html, body { margin: 0; padding: 0; height: 100%; background: #0F0F10; overflow: hidden; }
   #term { height: 100%; width: 100%; }
   .xterm { padding: 4px 8px; }
+  .xterm .xterm-viewport { overscroll-behavior: contain; }
 </style>
 </head>
 <body>
@@ -18,6 +19,7 @@
   const term = new Terminal({
     fontFamily: 'monospace',
     fontSize: 12,
+    rescaleOverlappingGlyphs: true,
     convertEol: false,
     scrollback: 5000,
     theme: {
@@ -34,12 +36,47 @@
   term.loadAddon(fitAddon);
   term.open(document.getElementById('term'));
 
+  // Full-screen CLIs switch to the terminal's alternate buffer (DECSET 47,
+  // 1047, 1049). That buffer deliberately has no scrollback, which makes
+  // desktop TUIs such as OpenCode/Grok impossible to review on a phone.
+  // Keep their redraws in the normal buffer so mobile users can scroll them.
+  const alternateBufferModes = new Set([47, 1047, 1049]);
+  function suppressAlternateBuffer(params) {
+    return params.some(function(param) {
+      return typeof param === 'number' && alternateBufferModes.has(param);
+    });
+  }
+  term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, suppressAlternateBuffer);
+  term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, suppressAlternateBuffer);
+
+  let resizeScheduled = false;
+  let resizeTimer = null;
+  let reportedCols = -1;
+  let reportedRows = -1;
+
+  function reportSizeIfChanged() {
+    resizeScheduled = false;
+    if (term.cols === reportedCols && term.rows === reportedRows) return;
+    reportedCols = term.cols;
+    reportedRows = term.rows;
+    if (window.Android && window.Android.onResize) {
+      window.Android.onResize(term.cols, term.rows);
+    }
+  }
+
   function fit() {
     try {
       fitAddon.fit();
-      if (window.Android && window.Android.onResize) {
-        window.Android.onResize(term.cols, term.rows);
-      }
+      // xterm's own resize changes its DOM and re-triggers ResizeObserver.
+      // Wait until the Compose/WebView layout has stopped moving before sending
+      // one final geometry to full-screen CLIs such as Codex.
+      if (resizeTimer !== null) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function() {
+        if (!resizeScheduled) {
+          resizeScheduled = true;
+          requestAnimationFrame(reportSizeIfChanged);
+        }
+      }, 120);
     } catch (e) {}
   }
   fit();
@@ -57,6 +94,35 @@
 
   window.writeChunk = function(b64) { term.write(b64ToUtf8(b64)); };
   window.resetAndWrite = function(b64) { term.reset(); term.write(b64ToUtf8(b64)); };
+
+  // xterm's canvas does not receive native WebView scrolling on this device.
+  // Translate a one-finger drag directly into xterm viewport movement. The
+  // sign deliberately follows the finger: up moves terminal content up;
+  // down moves it down.
+  let lastTouchY = null;
+  let touchRemainder = 0;
+  term.element.addEventListener('touchstart', function(event) {
+    if (event.touches.length !== 1) return;
+    lastTouchY = event.touches[0].clientY;
+    touchRemainder = 0;
+  }, { capture: true, passive: true });
+  term.element.addEventListener('touchmove', function(event) {
+    if (lastTouchY === null || event.touches.length !== 1) return;
+    const nextY = event.touches[0].clientY;
+    touchRemainder += lastTouchY - nextY;
+    lastTouchY = nextY;
+    const cellHeight = term.element.getBoundingClientRect().height / Math.max(term.rows, 1);
+    const lines = Math.trunc(touchRemainder / Math.max(cellHeight, 1));
+    if (lines !== 0) {
+      term.scrollLines(lines);
+      touchRemainder -= lines * cellHeight;
+    }
+    event.preventDefault();
+  }, { capture: true, passive: false });
+  term.element.addEventListener('touchend', function() {
+    lastTouchY = null;
+    touchRemainder = 0;
+  }, { capture: true, passive: true });
 
   term.onData(function(data) {
     if (window.Android && window.Android.onInput) window.Android.onInput(data);

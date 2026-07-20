@@ -17,17 +17,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val app = PocketcodeApp.instance
         when (intent.action) {
             ACTION_APPROVE -> {
-                // Send agent.approve over WS so the server can write "y\n" to the PTY.
-                app.connection.send("""{"t":"agent.approve","session":"$session"}""")
-                // Flip the live notification back to Running in-place (do not cancel
-                // — CodeMote-style continuous status, not a fire-and-forget popup).
-                AgentLiveTracker.apply(session, LiveAgentState.Running, force = true)
-                Notifier.updateLive(context, session, LiveAgentState.Running)
+                app.connection.respondToApproval(session, approve = true)
             }
             ACTION_REJECT -> {
-                app.connection.send("""{"t":"agent.reject","session":"$session"}""")
-                AgentLiveTracker.apply(session, LiveAgentState.Running, force = true)
-                Notifier.updateLive(context, session, LiveAgentState.Running)
+                app.connection.respondToApproval(session, approve = false)
             }
             ACTION_VIEW_DIFF -> {
                 val open = Intent(context, MainActivity::class.java).apply {

@@ -84,4 +84,11 @@ class AgentLiveTrackerTest {
         assertTrue(AgentLiveTracker.apply("t1", LiveAgentState.Waiting("same")))
         assertFalse(AgentLiveTracker.apply("t1", LiveAgentState.Waiting("same")))
     }
+
+    @Test
+    fun changedWaitingSnippetDoesNotRefire() {
+        assertTrue(AgentLiveTracker.apply("t1", LiveAgentState.Waiting("Approve edit?")))
+        assertFalse(AgentLiveTracker.apply("t1", LiveAgentState.Waiting("Still waiting for approval")))
+        assertEquals(LiveAgentState.Waiting("Approve edit?"), AgentLiveTracker.get("t1"))
+    }
 }

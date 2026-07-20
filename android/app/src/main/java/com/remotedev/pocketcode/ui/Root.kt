@@ -90,7 +90,7 @@ private fun FloatingBottomNav(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) {
     val app = PocketcodeApp.instance
@@ -110,6 +110,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     var activeTerminalTab by remember { mutableStateOf(0) }
 
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isImeVisible = WindowInsets.isImeVisible
 
     LaunchedEffect(openDiffFor) {
         if (openDiffFor != null) {
@@ -165,7 +166,9 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
             },
         )
     }, bottomBar = {
-        if (!isLandscape) {
+        // The keyboard covers the floating navigation. Do not reserve that
+        // bar's height as empty space above the IME while entering a command.
+        if (!isLandscape && !isImeVisible) {
             FloatingBottomNav(selected = tab, onSelect = { tab = it })
         }
     }) { padding ->
@@ -226,8 +229,8 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                     )
                     3 -> com.remotedev.pocketcode.agent.AgentTimelineScreen(
                         events = agentEvents,
-                        onApprove = { tabId -> app.connection.send("""{"t":"agent.approve","session":"$tabId"}""") },
-                        onReject = { tabId -> app.connection.send("""{"t":"agent.reject","session":"$tabId"}""") },
+                        onApprove = { tabId -> app.connection.respondToApproval(tabId, approve = true) },
+                        onReject = { tabId -> app.connection.respondToApproval(tabId, approve = false) },
                     )
                     4 -> QrScannerScreen(
                         onPaired = { qr -> pairAndConnect(qr) },
@@ -245,11 +248,14 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
 
     val openFile by app.connection.openFile.collectAsState()
     openFile?.let { (path, content) ->
-        AlertDialog(
-            onDismissRequest = { app.connection.openFile.value = null },
-            confirmButton = { TextButton(onClick = { app.connection.openFile.value = null }) { Text("Close") } },
-            title = { Text(path.substringAfterLast('/')) },
-            text = { com.remotedev.pocketcode.files.CodeViewerStub(path = path, content = content) }
+        com.remotedev.pocketcode.files.FileEditorScreen(
+            path = path,
+            content = content,
+            onSave = { updated ->
+                app.connection.send("""{"t":"fs.write","path":${jsonStr(path)},"content":${jsonStr(updated)}}""")
+                app.connection.openFile.value = null
+            },
+            onClose = { app.connection.openFile.value = null },
         )
     }
 

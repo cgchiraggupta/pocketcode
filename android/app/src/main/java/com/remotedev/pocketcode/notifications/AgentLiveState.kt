@@ -47,8 +47,10 @@ object AgentLiveTracker {
                 force -> next
                 prev is LiveAgentState.Waiting && next is LiveAgentState.Running -> prev
                 prev == next -> prev
-                prev is LiveAgentState.Waiting && next is LiveAgentState.Waiting &&
-                    prev.snippet == next.snippet -> prev
+                // A terminal can repaint a waiting prompt with changing status
+                // text. It is still the same unanswered decision, not a new
+                // approval for the user.
+                prev is LiveAgentState.Waiting && next is LiveAgentState.Waiting -> prev
                 else -> next
             }
             if (effective == prev) cur

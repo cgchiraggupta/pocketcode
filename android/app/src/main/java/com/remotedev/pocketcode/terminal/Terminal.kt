@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.remotedev.pocketcode.PocketcodeApp
@@ -46,20 +43,13 @@ fun TerminalScreen(
     val savedCommands by PocketcodeApp.instance.savedCommands.commands.collectAsState()
 
     val cur = tabs.getOrNull(activeTab)
-    var input by remember { mutableStateOf("") }
-
-    fun submitInput() {
-        if (input.isEmpty()) return
-        onInput(input + "\r")
-        input = ""
-    }
-
     var showTabMenu by remember { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
 
     Column(
         Modifier
             .fillMaxSize()
+            .imePadding()
             .background(cs.background)
     ) {
         // ── Top bar: pill tab selector (tap to switch / close / add tabs) ────
@@ -143,44 +133,6 @@ fun TerminalScreen(
 
             // ── Extra keys ───────────────────────────────────────────────────
             ExtraKeys(onSend = { onInput(it) })
-
-            // ── Input row ────────────────────────────────────────────────────
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(cs.surface)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    placeholder = { Text("›", color = cs.onSurfaceVariant, fontFamily = FontFamily.Monospace) },
-                    textStyle = LocalTextStyle.current.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                        color = cs.onSurface,
-                    ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = cs.outline,
-                        focusedBorderColor = cs.primary,
-                        cursorColor = cs.onSurface,
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { submitInput() }),
-                )
-                Spacer(Modifier.width(6.dp))
-                FilledTonalButton(
-                    onClick = { submitInput() },
-                    enabled = input.isNotEmpty(),
-                    shape = CircleShape,
-                ) {
-                    Text("⏎", fontFamily = FontFamily.Monospace)  // ⏎
-                }
-            }
         } else {
             Box(
                 Modifier
@@ -202,7 +154,7 @@ private fun ExtraKeys(onSend: (String) -> Unit) {
     val keys = listOf(
         "esc"  to "",
         "ctrl" to "",
-        "->|"  to "\t",
+        "tab"  to "\t",
         "~"    to "~",
         "|"    to "|",
         "/"    to "/",
