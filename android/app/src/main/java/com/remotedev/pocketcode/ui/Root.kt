@@ -225,6 +225,10 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                             val pathsJson = paths.joinToString(",") { jsonStr(it) }
                             app.connection.send("""{"t":"git.stage","paths":[$pathsJson]}""")
                         },
+                        onUnstage = { paths ->
+                            val pathsJson = paths.joinToString(",") { jsonStr(it) }
+                            app.connection.send("""{"t":"git.unstage","paths":[$pathsJson]}""")
+                        },
                         onCommit = { msg -> app.connection.send("""{"t":"git.commit","message":${jsonStr(msg)}}""") },
                         onPush = { app.connection.send("""{"t":"git.push"}""") },
                         onSwitchBranch = { name -> app.connection.send("""{"t":"git.checkout","name":${jsonStr(name)}}""") }

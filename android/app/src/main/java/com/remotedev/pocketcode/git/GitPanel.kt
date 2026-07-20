@@ -35,6 +35,7 @@ fun GitPanelScreen(
     onRequestDiff: (String, Boolean) -> Unit,
     onClearDiff: () -> Unit,
     onStage: (List<String>) -> Unit,
+    onUnstage: (List<String>) -> Unit,
     onCommit: (String) -> Unit,
     onPush: () -> Unit,
     onSwitchBranch: (String) -> Unit,
@@ -42,7 +43,7 @@ fun GitPanelScreen(
     var msg by remember { mutableStateOf("") }
     var viewingDiffFor by remember { mutableStateOf<String?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().imePadding()) {
 
         // ── Header: branch + stage-all ────────────────────────────────────────
         Row(
@@ -89,7 +90,8 @@ fun GitPanelScreen(
             ) {
                 items(status.files, key = { it.path }) { f ->
                     val badge = f.index.trim().ifEmpty { f.working_dir.trim() }
-                    val color = statusColor(f.index, f.working_dir)
+                    val fullyStaged = f.index.isNotBlank() && f.working_dir.isBlank()
+                    val color = if (fullyStaged) Color(0xFF22C55E) else statusColor(f.index, f.working_dir)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -97,7 +99,7 @@ fun GitPanelScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = badge,
+                            text = if (fullyStaged) "$badge✓" else badge,
                             color = color,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
@@ -112,9 +114,11 @@ fun GitPanelScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         TextButton(
-                            onClick = { onStage(listOf(f.path)) },
+                            onClick = {
+                                if (fullyStaged) onUnstage(listOf(f.path)) else onStage(listOf(f.path))
+                            },
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        ) { Text("stage", fontSize = 11.sp) }
+                        ) { Text(if (fullyStaged) "unstage" else "stage", fontSize = 11.sp) }
                         TextButton(
                             onClick = { viewingDiffFor = f.path },
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
@@ -149,11 +153,11 @@ fun GitPanelScreen(
                     onClick = { if (msg.isNotBlank()) { onCommit(msg); msg = "" } },
                     enabled = msg.isNotBlank(),
                     modifier = Modifier.weight(1f),
-                ) { Text("Commit") }
+                ) { Text("Commit locally") }
                 OutlinedButton(
                     onClick = onPush,
                     modifier = Modifier.weight(1f),
-                ) { Text("Push") }
+                ) { Text("Push to origin") }
             }
         }
     }
