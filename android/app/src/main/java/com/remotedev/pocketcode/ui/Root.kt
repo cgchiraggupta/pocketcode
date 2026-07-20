@@ -105,6 +105,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     val gitStatus by app.connection.gitStatus.collectAsState()
     val gitDiff by app.connection.gitDiff.collectAsState()
     val gitFeedback by app.connection.gitFeedback.collectAsState()
+    val gitBranches by app.connection.gitBranches.collectAsState()
     val agentEvents by app.connection.agentEvents.collectAsState()
     val terminalTabs by app.connection.terminalTabs.collectAsState()
     val costUpdate by app.connection.costFlow.collectAsState()
@@ -224,6 +225,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         status = gitStatus,
                         diffText = gitDiff,
                         feedback = gitFeedback,
+                        branches = gitBranches,
                         onRequestDiff = { path, staged ->
                             app.connection.send("""{"t":"git.diff","path":${jsonStr(path)},"staged":$staged}""")
                         },
@@ -238,7 +240,10 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         },
                         onCommit = { msg -> app.connection.send("""{"t":"git.commit","message":${jsonStr(msg)}}""") },
                         onPush = { app.connection.send("""{"t":"git.push"}""") },
-                        onSwitchBranch = { name -> app.connection.send("""{"t":"git.checkout","name":${jsonStr(name)}}""") }
+                        onRequestBranches = { app.connection.send("""{"t":"git.branches"}""") },
+                        onSwitchBranch = { name, create ->
+                            app.connection.send("""{"t":"git.checkout","name":${jsonStr(name)},"create":$create}""")
+                        },
                     )
                     3 -> com.remotedev.pocketcode.agent.AgentTimelineScreen(
                         events = agentEvents,

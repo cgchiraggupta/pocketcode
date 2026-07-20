@@ -214,7 +214,9 @@ export class Server extends EventEmitter {
       case 'git.push': await this.git.push(); return { t: 'git.result', action: 'push', ...(await this.git.status()) };
       case 'git.pull': await this.git.pull(); return { t: 'git.result', action: 'pull', ...(await this.git.status()) };
       case 'git.branches': return { t: 'git.branches' as any, ...(await this.git.branches()) } as any;
-      case 'git.checkout': await this.git.checkout(msg.name, msg.create); return null;
+      case 'git.checkout':
+        await this.git.checkout(msg.name, msg.create);
+        return { t: 'git.result', action: 'checkout', ...(await this.git.status()) };
       case 'git.log': return { t: 'git.log' as any, entries: await this.git.log(msg.max) } as any;
 
       case 'devservers': {

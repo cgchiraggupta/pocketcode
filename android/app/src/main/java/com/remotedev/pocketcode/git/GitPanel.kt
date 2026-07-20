@@ -33,16 +33,20 @@ fun GitPanelScreen(
     status: GitStatus,
     diffText: String,
     feedback: String?,
+    branches: List<String>,
     onRequestDiff: (String, Boolean) -> Unit,
     onClearDiff: () -> Unit,
     onStage: (List<String>) -> Unit,
     onUnstage: (List<String>) -> Unit,
     onCommit: (String) -> Unit,
     onPush: () -> Unit,
-    onSwitchBranch: (String) -> Unit,
+    onRequestBranches: () -> Unit,
+    onSwitchBranch: (String, Boolean) -> Unit,
 ) {
     var msg by remember { mutableStateOf("") }
     var viewingDiffFor by remember { mutableStateOf<String?>(null) }
+    var showBranchPicker by remember { mutableStateOf(false) }
+    var newBranchName by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().imePadding()) {
 
@@ -54,13 +58,18 @@ fun GitPanelScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "⎷  ${status.current ?: "(detached)"}",
-                style = MaterialTheme.typography.titleSmall,
+            TextButton(
+                onClick = { onRequestBranches(); showBranchPicker = true },
                 modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Text(
+                    text = "⎷  ${status.current ?: "(detached)"}  ▾",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (status.files.isNotEmpty()) {
                 TextButton(onClick = { onStage(status.files.map { it.path }) }) {
                     Text("Stage all", style = MaterialTheme.typography.labelMedium)
@@ -169,6 +178,49 @@ fun GitPanelScreen(
                 ) { Text("Push to origin") }
             }
         }
+    }
+
+    if (showBranchPicker) {
+        AlertDialog(
+            onDismissRequest = { showBranchPicker = false },
+            title = { Text("Switch branch") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    branches.forEach { branch ->
+                        TextButton(
+                            onClick = {
+                                if (branch != status.current) onSwitchBranch(branch, false)
+                                showBranchPicker = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (branch == status.current) "✓  $branch" else branch,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = newBranchName,
+                        onValueChange = { newBranchName = it },
+                        label = { Text("New branch name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newBranchName.isNotBlank(),
+                    onClick = {
+                        onSwitchBranch(newBranchName.trim(), true)
+                        newBranchName = ""
+                        showBranchPicker = false
+                    },
+                ) { Text("Create branch") }
+            },
+            dismissButton = { TextButton(onClick = { showBranchPicker = false }) { Text("Close") } },
+        )
     }
 
     // ── Diff dialog ───────────────────────────────────────────────────────────

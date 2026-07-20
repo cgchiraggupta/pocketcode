@@ -15,7 +15,7 @@ No REST surface beyond `GET /api/health`. **Everything is one WebSocket** at `ws
 |---|---|---|
 | `term.*` | both | PTY open/input/resize/close/data/exit/list |
 | `fs.*` | client→server | tree/read/write/mkdir/rename/delete/search |
-| `git.*` | client→server | status/diff/stage/unstage/commit/push/pull/branches/checkout/log; mutations reply with `git.result` + fresh status |
+| `git.*` | client→server | status/diff/stage/unstage/commit/push/pull/branches/checkout/log; mutations reply with `git.result` + fresh status, and `git.branches` returns the branch list |
 | `devservers`, `devserver.start/stop/log` | client→server | lsof-discovered ("unmanaged") + spawned ("managed") dev processes |
 | `workspace.*` | client→server | list/switch VS Code folders |
 | `snapshot.*` | client→server | pre-agent `git stash` snapshots |
