@@ -62,6 +62,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ### 4. Connect from your phone
 
+//testing again lol
 
 
 1. Open a project in VS Code
