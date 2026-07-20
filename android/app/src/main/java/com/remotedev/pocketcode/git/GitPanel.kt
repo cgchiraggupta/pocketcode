@@ -32,7 +32,7 @@ private fun statusColor(index: String, working: String): Color = when {
 fun GitPanelScreen(
     status: GitStatus,
     diffText: String,
-    onRequestDiff: (String) -> Unit,
+    onRequestDiff: (String, Boolean) -> Unit,
     onClearDiff: () -> Unit,
     onStage: (List<String>) -> Unit,
     onCommit: (String) -> Unit,
@@ -160,7 +160,10 @@ fun GitPanelScreen(
 
     // ── Diff dialog ───────────────────────────────────────────────────────────
     viewingDiffFor?.let { path ->
-        LaunchedEffect(path) { onRequestDiff(path) }
+        val file = status.files.firstOrNull { it.path == path }
+        // Once a file is staged its working-tree diff is empty; request the
+        // staged side so the Diff action keeps showing what will be committed.
+        LaunchedEffect(path, file?.index) { onRequestDiff(path, file?.index?.isNotBlank() == true) }
         AlertDialog(
             onDismissRequest = { viewingDiffFor = null; onClearDiff() },
             confirmButton = {

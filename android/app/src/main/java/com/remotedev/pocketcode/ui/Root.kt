@@ -217,7 +217,9 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                     2 -> GitPanelScreen(
                         status = gitStatus,
                         diffText = gitDiff,
-                        onRequestDiff = { path -> app.connection.send("""{"t":"git.diff","path":"$path"}""") },
+                        onRequestDiff = { path, staged ->
+                            app.connection.send("""{"t":"git.diff","path":${jsonStr(path)},"staged":$staged}""")
+                        },
                         onClearDiff = { app.connection.gitDiff.value = "" },
                         onStage = { paths ->
                             val pathsJson = paths.joinToString(",") { jsonStr(it) }
