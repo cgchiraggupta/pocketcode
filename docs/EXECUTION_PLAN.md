@@ -43,8 +43,8 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 ---
 
 ## Task 2 — Diff viewer
-- [ ] Status: not started
-- **Current state**: backend `GitManager.diff(path?, staged?)` in `extension/src/git/manager.ts` already returns diff data. No rendering UI exists anywhere in Android — `GitPanel.kt` (218 lines) currently only does status/stage/commit/push, not diff display.
+- [x] Status: passed
+- **Current state**: Android now renders unified diffs from `GitManager.diff(path?, staged?)` in `GitPanel.kt`, including staged diffs.
 - **Files to touch**:
   - New: `android/app/src/main/java/com/remotedev/pocketcode/git/DiffView.kt`
   - Extend `GitPanel.kt` to navigate into `DiffView` per-file
@@ -54,6 +54,8 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
   3. Tap a changed file in `GitPanel.kt`'s status list → opens `DiffView` for that file.
 - **Done when**: staged and unstaged diffs render correctly for at least: added lines, removed lines, modified lines, new files, deleted files.
 - **Est**: 3-4 days.
+
+- **2026-07-21** — Physical Android verification passed: modified-file status, staged and unstaged unified diffs, stage/unstage state, local commit, push confirmation, and branch switching/creation all worked on-device.
 
 ---
 
