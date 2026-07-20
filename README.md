@@ -61,7 +61,6 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ### 4. Connect from your phone
-//hello 
 
 
 
