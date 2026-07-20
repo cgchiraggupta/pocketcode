@@ -25,7 +25,7 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 ---
 
 ## Task 1 — In-app code editor
-- [ ] Status: not started
+- [x] Status: passed
 - **Current state**: `android/README.md` explicitly names this a stub: `files/CodeViewerStub — replace with a real Compose code editor`. Backend is fully ready: `extension/src/files/manager.ts` has working `read(rel)` and `write(rel, content)`.
 - **Files to touch**:
   - New: `android/app/src/main/java/com/remotedev/pocketcode/files/Editor.kt` (or similar — replace `CodeViewerStub`)
@@ -37,6 +37,8 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
   4. Handle large files gracefully (don't load 10k-line files into a single Compose text field without virtualization).
 - **Done when**: can open a file from the tree, edit it, save it, and see the change reflected on the VS Code side.
 - **Est**: 5-7 days.
+
+- **2026-07-21** — Physical Android verification passed: files open in the editor, edits save through `fs.write` and appear on the Mac. Added mobile Undo and increased file-tree depth for nested source folders.
 
 ---
 
