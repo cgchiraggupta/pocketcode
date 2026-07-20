@@ -62,6 +62,8 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ### 4. Connect from your phone
 
+
+
 1. Open a project in VS Code
 2. Run **RemoteDev: Start Mobile Session** (or click the status bar)
 3. Scan the QR code using the PocketCode Android app
