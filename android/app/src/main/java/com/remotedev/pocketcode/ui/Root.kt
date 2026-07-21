@@ -271,8 +271,17 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         } },
                         onDelete = { id -> scope.launch { app.db.dao().deleteNote(id) } },
                         onSend = { content ->
-                            terminalTabs.getOrNull(activeTerminalTab)?.id?.let { tabId ->
-                                app.connection.send("""{"t":"term.input","tab":"$tabId","data":${jsonStr("$content\n")}}""")
+                            terminalTabs.getOrNull(activeTerminalTab)?.let { target ->
+                                val tabId = target.id
+                                // xterm emits carriage return for the Enter key. A line-feed
+                                // merely inserts text in full-screen CLIs such as Claude Code;
+                                // carriage return submits the pasted prompt and starts the run.
+                                app.connection.send("""{"t":"term.input","tab":"$tabId","data":${jsonStr("$content\r")}}""")
+                                when {
+                                    target.raw.contains("Claude Code", ignoreCase = true) -> "Claude Code (${target.title})"
+                                    target.raw.contains("OpenAI Codex", ignoreCase = true) -> "Codex CLI (${target.title})"
+                                    else -> "terminal ${target.title}"
+                                }
                             }
                         },
                     )
