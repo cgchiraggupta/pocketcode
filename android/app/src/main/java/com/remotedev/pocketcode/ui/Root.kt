@@ -28,6 +28,7 @@ import com.remotedev.pocketcode.pairing.QrParser
 import com.remotedev.pocketcode.pairing.QrScannerScreen
 import com.remotedev.pocketcode.notes.NotesScreen
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 // Simple glyph-based icons, matching the existing terminal's unicode-glyph
 // convention (⚡ ⏎ ▾) instead of pulling in the material-icons-extended
@@ -273,10 +274,14 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         onSend = { content ->
                             terminalTabs.getOrNull(activeTerminalTab)?.let { target ->
                                 val tabId = target.id
-                                // xterm emits carriage return for the Enter key. A line-feed
-                                // merely inserts text in full-screen CLIs such as Claude Code;
-                                // carriage return submits the pasted prompt and starts the run.
-                                app.connection.send("""{"t":"term.input","tab":"$tabId","data":${jsonStr("$content\r")}}""")
+                                // Submit separately from the paste. Claude Code's TUI may
+                                // absorb an Enter that shares the pasted input frame, whereas
+                                // a subsequent carriage-return is handled as its real Enter key.
+                                app.connection.send("""{"t":"term.input","tab":"$tabId","data":${jsonStr(content)}}""")
+                                scope.launch {
+                                    delay(150)
+                                    app.connection.send("""{"t":"term.input","tab":"$tabId","data":"\\r"}""")
+                                }
                                 when {
                                     target.raw.contains("Claude Code", ignoreCase = true) -> "Claude Code (${target.title})"
                                     target.raw.contains("OpenAI Codex", ignoreCase = true) -> "Codex CLI (${target.title})"
