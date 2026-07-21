@@ -26,6 +26,8 @@ import com.remotedev.pocketcode.git.GitPanelScreen
 import com.remotedev.pocketcode.pairing.PairingQR
 import com.remotedev.pocketcode.pairing.QrParser
 import com.remotedev.pocketcode.pairing.QrScannerScreen
+import com.remotedev.pocketcode.notes.NotesScreen
+import kotlinx.coroutines.launch
 
 // Simple glyph-based icons, matching the existing terminal's unicode-glyph
 // convention (⚡ ⏎ ▾) instead of pulling in the material-icons-extended
@@ -35,6 +37,7 @@ private val NAV_ITEMS = listOf(
     ">_" to "Terminal",
     "⎇" to "Git",
     "◆" to "Agent",
+    "✎" to "Notes",
     "▣" to "Pair",
 )
 
@@ -108,8 +111,10 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     val gitBranches by app.connection.gitBranches.collectAsState()
     val agentEvents by app.connection.agentEvents.collectAsState()
     val terminalTabs by app.connection.terminalTabs.collectAsState()
+    val notes by app.db.dao().notes().collectAsState(initial = emptyList())
     val costUpdate by app.connection.costFlow.collectAsState()
     var activeTerminalTab by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
 
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val isImeVisible = WindowInsets.isImeVisible
@@ -257,11 +262,25 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                             app.connection.send("""{"t":"term.resize","tab":"$tabId","cols":$cols,"rows":$rows}""")
                         },
                     )
-                    4 -> QrScannerScreen(
+                    4 -> NotesScreen(
+                        notes = notes,
+                        canSend = terminalTabs.getOrNull(activeTerminalTab)?.alive == true,
+                        onSave = { id, content -> scope.launch {
+                            if (id == null) app.db.dao().addNote(com.remotedev.pocketcode.persistence.Note(content = content, updatedAt = System.currentTimeMillis()))
+                            else app.db.dao().updateNote(id, content, System.currentTimeMillis())
+                        } },
+                        onDelete = { id -> scope.launch { app.db.dao().deleteNote(id) } },
+                        onSend = { content ->
+                            terminalTabs.getOrNull(activeTerminalTab)?.id?.let { tabId ->
+                                app.connection.send("""{"t":"term.input","tab":"$tabId","data":${jsonStr("$content\n")}}""")
+                            }
+                        },
+                    )
+                    5 -> QrScannerScreen(
                         onPaired = { qr -> pairAndConnect(qr) },
                         onManual = { showPasteDialog = true },
                     )
-                    5 -> com.remotedev.pocketcode.pairing.MachineListScreen(
+                    6 -> com.remotedev.pocketcode.pairing.MachineListScreen(
                         machines,
                         onPick = { app.connection.connect(it) },
                         onRemove = { app.machines.remove(it.id) },

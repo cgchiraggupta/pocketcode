@@ -81,7 +81,7 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 ---
 
 ## Task 4 — Notes → agent
-- [ ] Status: not started
+- [x] Status: passed
 - **Current state**: nothing exists for this today.
 - **Files to touch**:
   - New: `android/app/src/main/java/com/remotedev/pocketcode/notes/NotesScreen.kt`
@@ -92,6 +92,8 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
   3. Optional (v1.1): shake-to-open gesture, matching CodeMote's pattern — not required for parity, nice-to-have.
 - **Done when**: can capture a note, send it to an active agent session, and see it appear as input in that session.
 - **Est**: 2-3 days (add ~1 day if including shake-gesture).
+
+- **2026-07-21** — Physical Android verification passed: notes persist locally through a non-destructive Room migration, can be created, edited, and deleted, and send to the active terminal session.
 
 ---
 
