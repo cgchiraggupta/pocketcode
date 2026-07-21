@@ -280,7 +280,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                                 app.connection.send("""{"t":"term.input","tab":"$tabId","data":${jsonStr(content)}}""")
                                 scope.launch {
                                     delay(150)
-                                    app.connection.send("""{"t":"term.input","tab":"$tabId","data":"\\r"}""")
+                                    app.connection.send("""{"t":"term.input","tab":"$tabId","data":${jsonStr("\r")}}""")
                                 }
                                 when {
                                     target.raw.contains("Claude Code", ignoreCase = true) -> "Claude Code (${target.title})"
