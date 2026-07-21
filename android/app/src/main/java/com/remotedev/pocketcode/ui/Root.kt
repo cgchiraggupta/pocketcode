@@ -245,10 +245,17 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                             app.connection.send("""{"t":"git.checkout","name":${jsonStr(name)},"create":$create}""")
                         },
                     )
-                    3 -> com.remotedev.pocketcode.agent.AgentTimelineScreen(
+                    3 -> com.remotedev.pocketcode.agent.AgentChatScreen(
                         events = agentEvents,
+                        tabs = terminalTabs,
                         onApprove = { tabId -> app.connection.respondToApproval(tabId, approve = true) },
                         onReject = { tabId -> app.connection.respondToApproval(tabId, approve = false) },
+                        onInput = { tabId, data ->
+                            app.connection.send("""{"t":"term.input","tab":"$tabId","data":${jsonStr(data)}}""")
+                        },
+                        onResize = { tabId, cols, rows ->
+                            app.connection.send("""{"t":"term.resize","tab":"$tabId","cols":$cols,"rows":$rows}""")
+                        },
                     )
                     4 -> QrScannerScreen(
                         onPaired = { qr -> pairAndConnect(qr) },

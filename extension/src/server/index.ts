@@ -9,6 +9,7 @@ import { GitManager } from '../git/manager';
 import { listDevServers, DevServerRegistry } from '../devservers';
 import { Snapshots } from '../snapshot';
 import { ApprovalDetector } from '../agent-detector';
+import { AgentEventNormalizer } from '../agent-events';
 import { WsMsg, PairingQR } from './protocol';
 import { fingerprint, newToken } from '../security/token';
 import { EventEmitter } from 'node:events';
@@ -46,6 +47,7 @@ export class Server extends EventEmitter {
   snaps: Snapshots;
   devRegistry = new DevServerRegistry();
   private approvalDetector = new ApprovalDetector();
+  private agentEvents = new AgentEventNormalizer();
 
   constructor(private opts: ServerOpts) {
     super();
@@ -71,6 +73,9 @@ export class Server extends EventEmitter {
 
     this.pty.on('data', (id, data) => {
       this.broadcast({ t: 'term.data', tab: id, data });
+      for (const event of this.agentEvents.consume(id, data)) {
+        this.broadcast({ t: 'agent.event', tab: id, event });
+      }
       // Agent-agnostic: scan raw PTY output for a y/n-style approval prompt.
       // Previously nothing ever produced 'agent.event' -- the approve/reject
       // wire path existed but had no trigger telling the phone when to fire it.
@@ -82,6 +87,7 @@ export class Server extends EventEmitter {
     this.pty.on('exit', (id, code) => {
       this.broadcast({ t: 'term.exit', tab: id, code });
       this.approvalDetector.forget(id);
+      this.agentEvents.forget(id);
     });
     opts.auth.on('device.bound', (d) => this.emit('device.bound', d));
     opts.auth.on('device.fingerprintMismatch', (d) => this.emit('device.fingerprintMismatch', d));
@@ -188,9 +194,15 @@ export class Server extends EventEmitter {
         this.pty.open({ cols: msg.cols, rows: msg.rows, cwd: msg.cwd });
         return { t: 'term.list', tabs: this.pty.list() };
       }
-      case 'term.input': this.pty.write(msg.tab, msg.data); return null;
+      case 'term.input':
+        this.agentEvents.observeInput(msg.tab, msg.data);
+        this.pty.write(msg.tab, msg.data);
+        return null;
       case 'term.resize': this.pty.resize(msg.tab, msg.cols, msg.rows); return null;
-      case 'term.close': this.pty.close(msg.tab); return { t: 'term.list', tabs: this.pty.list() };
+      case 'term.close':
+        this.agentEvents.forget(msg.tab);
+        this.pty.close(msg.tab);
+        return { t: 'term.list', tabs: this.pty.list() };
       case 'term.list': return { t: 'term.list', tabs: this.pty.list() };
 
       case 'fs.tree': return { t: 'fs.tree' as any, ...(await this.tree(msg.path, msg.depth)) } as any;

@@ -122,13 +122,19 @@ class ConnectionManager(private val ctx: Context) {
                             gitDiff.value = text
                         }
                         "agent.event" -> {
-                            val kind = obj["kind"]?.jsonPrimitive?.content ?: ""
+                            val structured = obj["event"]?.jsonObject
+                            val kind = structured?.get("type")?.jsonPrimitive?.content
+                                ?: obj["kind"]?.jsonPrimitive?.content.orEmpty()
                             // Server now stamps the originating PTY tab id on every
                             // agent.event (see protocol.ts) -- previously this was
                             // always hardcoded to "agent-session", so a phone running
                             // 3 terminals had no way to tell which one needed attention.
                             val tab = obj["tab"]?.jsonPrimitive?.content ?: "agent-session"
-                            val payloadStr = obj["payload"]?.toString() ?: ""
+                            val payloadStr = structured?.get("content")?.jsonPrimitive?.content
+                                ?: obj["payload"]?.toString().orEmpty()
+                            val agentId = structured?.get("agentId")?.jsonPrimitive?.content.orEmpty()
+                            val timestamp = structured?.get("timestamp")?.jsonPrimitive?.longOrNull
+                                ?: System.currentTimeMillis()
                             // Show a human-readable snippet, not the raw {"snippet":...} JSON blob.
                             val summary = if (kind == "awaiting_approval") extractApprovalSnippet(payloadStr) else payloadStr
                             if (kind == "awaiting_approval") {
@@ -139,7 +145,7 @@ class ConnectionManager(private val ctx: Context) {
                                     return@runCatching
                                 }
                             }
-                            val ev = AgentEvent(System.currentTimeMillis(), kind, summary, tab)
+                            val ev = AgentEvent(timestamp, kind, summary, tab, agentId)
                             agentEvents.value = agentEvents.value + ev
                             val app = PocketcodeApp.instance
                             scope.launch {
@@ -156,8 +162,6 @@ class ConnectionManager(private val ctx: Context) {
                             if (kind == "awaiting_approval") {
                                 val title = terminalTabs.value.firstOrNull { it.id == tab }?.title
                                 Notifier.updateLive(ctx, tab, LiveAgentState.Waiting(summary), title)
-                            } else {
-                                Notifier.showInfo(ctx, "Agent: $kind", payloadStr, tab)
                             }
                         }
                         "term.list" -> {
@@ -210,18 +214,9 @@ class ConnectionManager(private val ctx: Context) {
                                     tab
                                 }
                             }
-                            // Feed the same terminal chunk through the parsers.
-                            com.remotedev.pocketcode.agent.AgentEventParser.parse(data, tabId) { ev ->
-                                agentEvents.value = agentEvents.value + ev
-                                scope.launch {
-                                    PocketcodeApp.instance.db.dao().addEvent(
-                                        com.remotedev.pocketcode.persistence.StoredEvent(
-                                            session = "current", kind = ev.kind, summary = ev.summary, ts = ev.ts
-                                        )
-                                    )
-                                }
-                                com.remotedev.pocketcode.widget.AgentStatusWidget.push(ctx, ev.kind)
-                            }
+                            // Native chat activity is supplied by the server as a separate
+                            // structured `agent.event`. Do not infer chat records from this
+                            // raw terminal stream: it remains the fallback/debug transport.
                             CostTracker.consume(data, costState)?.let { costFlow.value = it }
                             // Live status: first (or subsequent non-waiting) output marks
                             // the tab Running. Waiting is sticky until approve/reject/exit.

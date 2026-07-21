@@ -5,6 +5,14 @@ export type SessionId = string;
 export type TabId = string;
 export type DeviceId = string;
 
+export type AgentEventType = 'message' | 'tool_call' | 'question' | 'diff';
+export interface StructuredAgentEvent {
+  type: AgentEventType;
+  content: string;
+  agentId: 'claude-code' | 'codex-cli';
+  timestamp: number;
+}
+
 export interface PairingQR {
   v: 1;
   url: string;          // wss://...
@@ -76,4 +84,6 @@ export type WsMsg =
 
   | { t: 'pong' }
   | { t: 'error'; msg: string; trace?: string }
-  | { t: 'agent.event'; tab: string; kind: string; payload: unknown };
+  // Native chat events are deliberately separate from term.data. `kind` and
+  // `payload` remain optional for the existing approval-notification path.
+  | { t: 'agent.event'; tab: string; event?: StructuredAgentEvent; kind?: string; payload?: unknown };

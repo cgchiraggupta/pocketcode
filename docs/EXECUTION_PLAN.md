@@ -60,7 +60,7 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 ---
 
 ## Task 3 — Native per-agent chat UI
-- [ ] Status: not started — **depends on Task 0 passing**
+- [ ] Status: in progress — **depends on Task 0 passing**
 - **Current state**: today, agent interaction is raw terminal + `ApprovalDetector` regex watching for y/n-style prompts. No structured chat thread exists. This is CodeMote's headline 2.0 feature and the biggest visual gap.
 - **Files to touch**:
   - Backend: `extension/src/agent-detector.ts` — extend beyond approve/reject into a general event emitter (message start/end, tool-call detected, subagent spawned, etc.)
@@ -75,6 +75,8 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 - **Gotcha**: this is fundamentally harder than the other tasks because CLI output formats vary and evolve. Scope v1 tight: get Claude Code and Codex CLI working well, treat everything else as "falls back to raw terminal."
 - **Done when**: at least 2 agent CLIs show a readable chat thread (not raw ANSI text) with visible tool-call/diff events, and approve/reject still routes correctly per-agent.
 - **Est**: 7-10 days. Largest single task.
+
+- **2026-07-21** — Started the v1 Claude Code/Codex CLI path: the server now emits separate typed chat events, and Android renders them by terminal tab with an in-place raw-terminal fallback. Extension tests and Android unit/assemble builds pass; physical-device verification remains.
 
 ---
 

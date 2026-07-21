@@ -16,7 +16,14 @@ import androidx.compose.ui.unit.sp
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class AgentEvent(val ts: Long, val kind: String, val summary: String, val tab: String = "")
+data class AgentEvent(
+    val ts: Long,
+    val kind: String,
+    val summary: String,
+    val tab: String = "",
+    /** Stable CLI identifier supplied by the server for native chat events. */
+    val agentId: String = "",
+)
 
 /**
  * Removes ANSI/VT control sequences from raw PTY text so the timeline heuristics
