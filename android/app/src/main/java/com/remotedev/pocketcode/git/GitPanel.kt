@@ -42,6 +42,7 @@ fun GitPanelScreen(
     onPush: () -> Unit,
     onRequestBranches: () -> Unit,
     onSwitchBranch: (String, Boolean) -> Unit,
+    onShowPullRequests: () -> Unit,
 ) {
     var msg by remember { mutableStateOf("") }
     var viewingDiffFor by remember { mutableStateOf<String?>(null) }
@@ -75,6 +76,7 @@ fun GitPanelScreen(
                     Text("Stage all", style = MaterialTheme.typography.labelMedium)
                 }
             }
+            TextButton(onClick = onShowPullRequests) { Text("PRs") }
         }
 
         // ── Changed files (scrollable, takes remaining space above input) ──────

@@ -55,6 +55,13 @@ export type WsMsg =
   | { t: 'git.branches' }
   | { t: 'git.checkout'; name: string; create?: boolean }
   | { t: 'git.log'; max?: number }
+  | { t: 'github.prs' }
+  | { t: 'github.pr'; number: number }
+  | { t: 'github.pr.merge'; number: number; method?: 'merge' | 'squash' | 'rebase' }
+  | { t: 'github.pr.close'; number: number }
+  | { t: 'github.prs'; prs: Array<unknown> }
+  | { t: 'github.pr'; pr: unknown }
+  | { t: 'github.result'; action: 'merge' | 'close'; number: number }
   // Server acknowledgement for a completed Git mutation. Includes the fresh
   // porcelain status so clients can update the file list and stateful UI together.
   | { t: 'git.result'; action: 'stage' | 'unstage' | 'commit' | 'push' | 'pull' | 'checkout'; current?: string | null; files: Array<unknown> }

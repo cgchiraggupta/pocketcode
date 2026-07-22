@@ -5,6 +5,8 @@ import com.remotedev.pocketcode.PocketcodeApp
 import com.remotedev.pocketcode.pairing.PairedMachine
 import com.remotedev.pocketcode.files.FsNode
 import com.remotedev.pocketcode.git.GitStatus
+import com.remotedev.pocketcode.git.PullRequestDetail
+import com.remotedev.pocketcode.git.PullRequestSummary
 import com.remotedev.pocketcode.agent.AgentEvent
 import com.remotedev.pocketcode.agent.CostTracker
 import com.remotedev.pocketcode.agent.CostUpdate
@@ -63,6 +65,9 @@ class ConnectionManager(private val ctx: Context) {
     val gitDiff = MutableStateFlow<String>("")
     val gitFeedback = MutableStateFlow<String?>(null)
     val gitBranches = MutableStateFlow<List<String>>(emptyList())
+    val pullRequests = MutableStateFlow<List<PullRequestSummary>>(emptyList())
+    val pullRequestDetail = MutableStateFlow<PullRequestDetail?>(null)
+    val pullRequestFeedback = MutableStateFlow<String?>(null)
     val agentEvents = MutableStateFlow<List<AgentEvent>>(emptyList())
     private val costState = CostTracker.State()
     val costFlow = MutableStateFlow<CostUpdate?>(null)
@@ -120,6 +125,21 @@ class ConnectionManager(private val ctx: Context) {
                         "git.diff" -> {
                             val text = obj["text"]?.jsonPrimitive?.content ?: ""
                             gitDiff.value = text
+                        }
+                        "github.prs" -> {
+                            pullRequests.value = json.decodeFromJsonElement(obj["prs"] ?: JsonArray(emptyList()))
+                        }
+                        "github.pr" -> {
+                            pullRequestDetail.value = json.decodeFromJsonElement(obj["pr"] ?: return@runCatching)
+                        }
+                        "github.result" -> {
+                            val number = obj["number"]?.jsonPrimitive?.intOrNull ?: return@runCatching
+                            pullRequestFeedback.value = when (obj["action"]?.jsonPrimitive?.content) {
+                                "merge" -> "Pull request #$number merged."
+                                "close" -> "Pull request #$number closed."
+                                else -> "Pull request updated."
+                            }
+                            pullRequestDetail.value = null
                         }
                         "agent.event" -> {
                             val structured = obj["event"]?.jsonObject

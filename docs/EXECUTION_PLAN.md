@@ -98,7 +98,7 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 ---
 
 ## Task 5 — PR review/merge (lowest priority — candidate for v1.1 cut)
-- [ ] Status: not started
+- [ ] Status: implemented; real GitHub-account verification pending
 - **Current state**: `GitManager` in `extension/src/git/manager.ts` is local-git-only (status/diff/stage/commit/push/pull/branches/checkout/log). No GitHub API calls anywhere in the codebase.
 - **Files to touch**:
   - New: `extension/src/git/github.ts` — GitHub REST API wrapper (list PRs, get PR diff/files/commits, merge, close)
@@ -110,6 +110,11 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
   3. Reuse `DiffView` from Task 2 rather than building a second diff renderer.
 - **Decision needed**: ship this in v1, or document it as an explicit v1.1 gap (same pattern as the existing Windows-PTY punt in `docs/COMPETITIVE.md`)? Recommendation: cut for v1 — lowest synergy with everything else, and it's the one feature that's genuinely optional for "why would I use this over CodeMote."
 - **Est**: 4-6 days if built.
+
+- **2026-07-22** — Implemented desktop-mediated GitHub integration: the extension uses
+  Cursor/VS Code's GitHub authentication session and keeps its token off the phone. Android
+  can list/review open PRs, inspect commits/files/patches, squash-merge, and close a PR.
+  Remaining verification requires a user-authorized GitHub sign-in and a non-production test PR.
 
 ---
 

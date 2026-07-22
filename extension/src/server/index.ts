@@ -6,6 +6,7 @@ import { Auth } from './auth';
 import { PtyManager } from '../pty/manager';
 import { FilesManager } from '../files/manager';
 import { GitManager } from '../git/manager';
+import { GitHubClient } from '../git/github';
 import { listDevServers, DevServerRegistry } from '../devservers';
 import { Snapshots } from '../snapshot';
 import { ApprovalDetector } from '../agent-detector';
@@ -28,6 +29,8 @@ export interface ServerOpts {
   listWorkspaces?: () => WorkspaceFolderInfo[];
   /** Optional open-folder hook (VS Code only). Headless returns an error. */
   openWorkspaceFolder?: (folderUri: string) => void;
+  /** Resolves a desktop-only GitHub access token; it is never sent to mobile clients. */
+  getGitHubToken?: () => Promise<string>;
 }
 
 interface ClientState {
@@ -44,6 +47,7 @@ export class Server extends EventEmitter {
   pty: PtyManager;
   files: FilesManager;
   git: GitManager;
+  github?: GitHubClient;
   snaps: Snapshots;
   devRegistry = new DevServerRegistry();
   private approvalDetector = new ApprovalDetector();
@@ -54,6 +58,7 @@ export class Server extends EventEmitter {
     this.pty = new PtyManager(opts.maxTerminals);
     this.files = new FilesManager(opts.workspaceRoot);
     this.git = new GitManager(opts.workspaceRoot);
+    if (opts.getGitHubToken) this.github = new GitHubClient(opts.workspaceRoot, opts.getGitHubToken);
     this.snaps = new Snapshots(opts.workspaceRoot);
 
     this.wss.on('connection', (ws, req) => this.handleWs(ws, req));
@@ -230,6 +235,14 @@ export class Server extends EventEmitter {
         await this.git.checkout(msg.name, msg.create);
         return { t: 'git.result', action: 'checkout', ...(await this.git.status()) };
       case 'git.log': return { t: 'git.log' as any, entries: await this.git.log(msg.max) } as any;
+      case 'github.prs': return { t: 'github.prs' as any, prs: await this.requireGitHub().listPullRequests() } as any;
+      case 'github.pr': return { t: 'github.pr' as any, pr: await this.requireGitHub().getPullRequest((msg as { number: number }).number) } as any;
+      case 'github.pr.merge':
+        await this.requireGitHub().mergePullRequest(msg.number, msg.method);
+        return { t: 'github.result' as any, action: 'merge', number: msg.number } as any;
+      case 'github.pr.close':
+        await this.requireGitHub().closePullRequest(msg.number);
+        return { t: 'github.result' as any, action: 'close', number: msg.number } as any;
 
       case 'devservers': {
         // Merge managed + discovered via lsof
@@ -329,6 +342,11 @@ export class Server extends EventEmitter {
 
       default: return { t: 'error', msg: `unknown message ${(msg as any).t}` };
     }
+  }
+
+  private requireGitHub(): GitHubClient {
+    if (!this.github) throw new Error('GitHub integration is unavailable in this session.');
+    return this.github;
   }
 
   private async tree(path?: string, depth?: number) {

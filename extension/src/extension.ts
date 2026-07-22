@@ -77,6 +77,10 @@ async function start(auth: Auth, ctx: vscode.ExtensionContext) {
     openWorkspaceFolder: (folderUri) => {
       void vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.parse(folderUri));
     },
+    getGitHubToken: async () => {
+      const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
+      return session.accessToken;
+    },
   });
 
   const port = await server.listen();

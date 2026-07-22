@@ -23,6 +23,7 @@ import com.remotedev.pocketcode.PocketcodeApp
 import com.remotedev.pocketcode.connection.ConnState
 import com.remotedev.pocketcode.files.FileTreeScreen
 import com.remotedev.pocketcode.git.GitPanelScreen
+import com.remotedev.pocketcode.git.PullRequestsScreen
 import com.remotedev.pocketcode.pairing.PairingQR
 import com.remotedev.pocketcode.pairing.QrParser
 import com.remotedev.pocketcode.pairing.QrScannerScreen
@@ -110,11 +111,15 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     val gitDiff by app.connection.gitDiff.collectAsState()
     val gitFeedback by app.connection.gitFeedback.collectAsState()
     val gitBranches by app.connection.gitBranches.collectAsState()
+    val pullRequests by app.connection.pullRequests.collectAsState()
+    val pullRequestDetail by app.connection.pullRequestDetail.collectAsState()
+    val pullRequestFeedback by app.connection.pullRequestFeedback.collectAsState()
     val agentEvents by app.connection.agentEvents.collectAsState()
     val terminalTabs by app.connection.terminalTabs.collectAsState()
     val notes by app.db.dao().notes().collectAsState(initial = emptyList())
     val costUpdate by app.connection.costFlow.collectAsState()
     var activeTerminalTab by remember { mutableStateOf(0) }
+    var showingPullRequests by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -227,7 +232,16 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                             app.connection.send("""{"t":"term.resize","tab":"$tabId","cols":$cols,"rows":$rows}""")
                         }
                     )
-                    2 -> GitPanelScreen(
+                    2 -> if (showingPullRequests) PullRequestsScreen(
+                        prs = pullRequests,
+                        detail = pullRequestDetail,
+                        feedback = pullRequestFeedback,
+                        onRefresh = { app.connection.send("""{"t":"github.prs"}""") },
+                        onOpen = { number -> app.connection.send("""{"t":"github.pr","number":$number}""") },
+                        onBack = { showingPullRequests = false; app.connection.pullRequestDetail.value = null },
+                        onMerge = { number -> app.connection.send("""{"t":"github.pr.merge","number":$number,"method":"squash"}""") },
+                        onClose = { number -> app.connection.send("""{"t":"github.pr.close","number":$number}""") },
+                    ) else GitPanelScreen(
                         status = gitStatus,
                         diffText = gitDiff,
                         feedback = gitFeedback,
@@ -249,6 +263,10 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         onRequestBranches = { app.connection.send("""{"t":"git.branches"}""") },
                         onSwitchBranch = { name, create ->
                             app.connection.send("""{"t":"git.checkout","name":${jsonStr(name)},"create":$create}""")
+                        },
+                        onShowPullRequests = {
+                            showingPullRequests = true
+                            app.connection.send("""{"t":"github.prs"}""")
                         },
                     )
                     3 -> com.remotedev.pocketcode.agent.AgentChatScreen(
