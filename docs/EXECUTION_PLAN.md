@@ -121,7 +121,7 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 ---
 
 ## Task 6 — Verify dev server streaming survives backgrounding
-- [ ] Status: physical-device verification in progress
+- [x] Status: passed
 - **Current state**: `DevServerRegistry` in `extension/src/devservers.ts` and `SessionForegroundService.kt` on Android both exist and are designed for this. Needs confirmation, not new building.
 - **What to do**: start a dev server, background the app for 30+ minutes, confirm logs are still streaming and the foreground service hasn't been killed by Doze.
 - **Done when**: confirmed on a real device, not emulator (Doze behavior differs).
@@ -130,6 +130,9 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 - **2026-07-23** — Added the previously missing Android Dev Servers view, which starts/stops
   managed servers and follows their live log output. Build/unit verification passed; the
   required 30+ minute background-streaming check is pending a fresh physical-device pairing.
+
+- **2026-07-23** — Physical Android verification passed: dev-server logs continued streaming
+  after the app was backgrounded for 30+ minutes, and the foreground service remained active.
 
 ---
 
