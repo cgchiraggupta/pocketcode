@@ -2,7 +2,7 @@ package com.remotedev.pocketcode.devservers
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -28,7 +28,10 @@ fun DevServersScreen(
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (servers.isEmpty()) item { Text("No dev servers found. Start one below to stream its logs.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            items(servers, key = { it.pid }) { server ->
+            // A process can be reported more than once when it owns multiple listeners.
+            // The backend list order is stable for one refresh, so its index avoids duplicate
+            // LazyColumn keys while still keeping each reported listener visible.
+            itemsIndexed(servers, key = { index, _ -> index }) { _, server ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(server.cmd, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
