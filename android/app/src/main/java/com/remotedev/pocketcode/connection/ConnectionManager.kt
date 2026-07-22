@@ -7,6 +7,7 @@ import com.remotedev.pocketcode.files.FsNode
 import com.remotedev.pocketcode.git.GitStatus
 import com.remotedev.pocketcode.git.PullRequestDetail
 import com.remotedev.pocketcode.git.PullRequestSummary
+import com.remotedev.pocketcode.devservers.DevServer
 import com.remotedev.pocketcode.agent.AgentEvent
 import com.remotedev.pocketcode.agent.CostTracker
 import com.remotedev.pocketcode.agent.CostUpdate
@@ -73,7 +74,8 @@ class ConnectionManager(private val ctx: Context) {
     val costFlow = MutableStateFlow<CostUpdate?>(null)
     val openFile = MutableStateFlow<Pair<String, String>?>(null)
     val terminalTabs = MutableStateFlow<List<Tab>>(emptyList())
-    val devServers = MutableStateFlow<List<String>>(emptyList())
+    val devServers = MutableStateFlow<List<DevServer>>(emptyList())
+    val devServerLogs = MutableStateFlow<Map<Int, String>>(emptyMap())
     val workspaces = MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val lastConnectUrl = MutableStateFlow<String?>(null)
 
@@ -273,7 +275,21 @@ class ConnectionManager(private val ctx: Context) {
                         }
                         "devservers" -> {
                             val arr = obj["list"]?.jsonArray ?: return@runCatching
-                            devServers.value = arr.map { it.jsonObject["port"]?.jsonPrimitive?.content ?: "" }
+                            devServers.value = arr.mapNotNull { item ->
+                                val server = item.jsonObject
+                                val pid = server["pid"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                                DevServer(
+                                    pid = pid,
+                                    cmd = server["cmd"]?.jsonPrimitive?.content.orEmpty(),
+                                    port = server["port"]?.jsonPrimitive?.intOrNull,
+                                    managed = server["managed"]?.jsonPrimitive?.boolean ?: false,
+                                )
+                            }
+                        }
+                        "devserver.log" -> {
+                            val port = obj["port"]?.jsonPrimitive?.intOrNull ?: return@runCatching
+                            val data = obj["data"]?.jsonPrimitive?.content.orEmpty()
+                            devServerLogs.value = devServerLogs.value + (port to ((devServerLogs.value[port].orEmpty() + data).takeLast(16_000)))
                         }
                         "workspace.list" -> {
                             val arr = obj["list"]?.jsonArray ?: return@runCatching

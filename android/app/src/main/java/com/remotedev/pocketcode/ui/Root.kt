@@ -24,6 +24,7 @@ import com.remotedev.pocketcode.connection.ConnState
 import com.remotedev.pocketcode.files.FileTreeScreen
 import com.remotedev.pocketcode.git.GitPanelScreen
 import com.remotedev.pocketcode.git.PullRequestsScreen
+import com.remotedev.pocketcode.devservers.DevServersScreen
 import com.remotedev.pocketcode.pairing.PairingQR
 import com.remotedev.pocketcode.pairing.QrParser
 import com.remotedev.pocketcode.pairing.QrScannerScreen
@@ -114,6 +115,8 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
     val pullRequests by app.connection.pullRequests.collectAsState()
     val pullRequestDetail by app.connection.pullRequestDetail.collectAsState()
     val pullRequestFeedback by app.connection.pullRequestFeedback.collectAsState()
+    val devServers by app.connection.devServers.collectAsState()
+    val devServerLogs by app.connection.devServerLogs.collectAsState()
     val agentEvents by app.connection.agentEvents.collectAsState()
     val terminalTabs by app.connection.terminalTabs.collectAsState()
     val notes by app.db.dao().notes().collectAsState(initial = emptyList())
@@ -179,6 +182,7 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                     app.connection.send("""{"t":"workspace.list"}""")
                     showWorkspaceDialog = true
                 }) { Text("Workspaces") }
+                TextButton(onClick = { tab = 7 }) { Text("Servers") }
                 Spacer(Modifier.width(4.dp))
                 TextButton(onClick = { tab = 5 }) { Text("Machines") }
             },
@@ -316,6 +320,14 @@ fun Root(openDiffFor: String? = null, clearOpenDiffFor: (String?) -> Unit = {}) 
                         machines,
                         onPick = { app.connection.connect(it) },
                         onRemove = { app.machines.remove(it.id) },
+                    )
+                    7 -> DevServersScreen(
+                        servers = devServers,
+                        logs = devServerLogs,
+                        onRefresh = { app.connection.send("""{"t":"devservers"}""") },
+                        onStart = { command -> app.connection.send("""{"t":"devserver.start","cmd":${jsonStr(command)}}""") },
+                        onFollow = { port -> app.connection.send("""{"t":"devserver.log","port":$port,"follow":true}""") },
+                        onStop = { pid -> app.connection.send("""{"t":"devserver.stop","pid":$pid}""") },
                     )
                 }
             }

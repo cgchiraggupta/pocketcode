@@ -98,7 +98,7 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
 ---
 
 ## Task 5 — PR review/merge (lowest priority — candidate for v1.1 cut)
-- [ ] Status: implemented; real GitHub-account verification pending
+- [x] Status: passed
 - **Current state**: `GitManager` in `extension/src/git/manager.ts` is local-git-only (status/diff/stage/commit/push/pull/branches/checkout/log). No GitHub API calls anywhere in the codebase.
 - **Files to touch**:
   - New: `extension/src/git/github.ts` — GitHub REST API wrapper (list PRs, get PR diff/files/commits, merge, close)
@@ -116,14 +116,20 @@ _Written 2026-07-19 after a direct code audit (`extension/src`, `android/app/src
   can list/review open PRs, inspect commits/files/patches, squash-merge, and close a PR.
   Remaining verification requires a user-authorized GitHub sign-in and a non-production test PR.
 
+- **2026-07-23** — Real GitHub-account verification passed.
+
 ---
 
 ## Task 6 — Verify dev server streaming survives backgrounding
-- [ ] Status: not started (verification only, likely already works)
+- [ ] Status: physical-device verification in progress
 - **Current state**: `DevServerRegistry` in `extension/src/devservers.ts` and `SessionForegroundService.kt` on Android both exist and are designed for this. Needs confirmation, not new building.
 - **What to do**: start a dev server, background the app for 30+ minutes, confirm logs are still streaming and the foreground service hasn't been killed by Doze.
 - **Done when**: confirmed on a real device, not emulator (Doze behavior differs).
 - **Est**: 1-2 days.
+
+- **2026-07-23** — Added the previously missing Android Dev Servers view, which starts/stops
+  managed servers and follows their live log output. Build/unit verification passed; the
+  required 30+ minute background-streaming check is pending a fresh physical-device pairing.
 
 ---
 
