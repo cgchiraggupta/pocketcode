@@ -108,11 +108,25 @@ class ConnectionManager(private val ctx: Context) {
                             val status = json.decodeFromJsonElement<GitStatus>(element)
                             gitStatus.value = status
                             val branch = status.current ?: "current branch"
+                            val remainingChanges = status.files.size
+                            val remainingChangesText = if (remainingChanges == 1) {
+                                "1 local change is still uncommitted."
+                            } else {
+                                "$remainingChanges local changes are still uncommitted."
+                            }
                             gitFeedback.value = when (obj["action"]?.jsonPrimitive?.content) {
                                 "stage" -> "Changes staged — ready to commit locally."
                                 "unstage" -> "Changes unstaged."
-                                "commit" -> "Committed locally — tap Push to origin to publish it."
-                                "push" -> "Pushed to origin/$branch — local and remote are in sync."
+                                "commit" -> if (remainingChanges == 0) {
+                                    "Committed locally — tap Push to origin to publish it."
+                                } else {
+                                    "Committed staged changes locally. $remainingChangesText"
+                                }
+                                "push" -> if (remainingChanges == 0) {
+                                    "Pushed to origin/$branch — local and remote are in sync."
+                                } else {
+                                    "Pushed to origin/$branch. $remainingChangesText"
+                                }
                                 "pull" -> "Pulled the latest changes from origin/$branch."
                                 "checkout" -> "Switched to $branch."
                                 else -> "Git operation completed."
