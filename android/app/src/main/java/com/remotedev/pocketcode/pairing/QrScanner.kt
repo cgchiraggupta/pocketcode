@@ -18,8 +18,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.zxing.BinaryBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.DecodeHintType
+import com.google.zxing.LuminanceSource
 import com.google.zxing.MultiFormatReader
-import com.google.zxing.NotFoundException
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import java.util.concurrent.Executors
@@ -73,19 +75,31 @@ fun QrScannerScreen(onPaired: (PairingQR) -> Unit, onManual: () -> Unit) {
 }
 
 private class QrAnalyzer(private val onResult: (String) -> Unit) : ImageAnalysis.Analyzer {
-    private val reader = MultiFormatReader()
+    private val reader = MultiFormatReader().apply {
+        setHints(mapOf(
+            DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
+            DecodeHintType.TRY_HARDER to true,
+        ))
+    }
+
     override fun analyze(image: ImageProxy) {
-        val buf = image.planes[0].buffer
-        val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
-        val src = PlanarYUVLuminanceSource(bytes, image.width, image.height, 0, 0, image.width, image.height, false)
-        val result = try {
-            reader.decodeWithState(BinaryBitmap(HybridBinarizer(src)))
-        } catch (_: NotFoundException) {
-            null
-        } catch (_: Throwable) {
-            null
+        // CameraX may pad each Y-plane row. Compact the luminance plane first;
+        // passing the padded buffer as if it were width×height corrupts QR rows
+        // on devices whose row stride differs from their preview width.
+        val plane = image.planes[0]
+        val bytes = ByteArray(image.width * image.height)
+        val buffer = plane.buffer
+        for (row in 0 until image.height) {
+            buffer.position(row * plane.rowStride)
+            buffer.get(bytes, row * image.width, image.width)
         }
+        val source = PlanarYUVLuminanceSource(bytes, image.width, image.height, 0, 0, image.width, image.height, false)
+        val decode = { src: LuminanceSource ->
+            runCatching { reader.decodeWithState(BinaryBitmap(HybridBinarizer(src))) }.getOrNull()
+        }
+        val result = decode(source) ?: if (source.isRotateSupported) decode(source.rotateCounterClockwise()) else null
+        reader.reset()
         image.close()
-        if (result != null) onResult(result.text)
+        result?.let { onResult(it.text) }
     }
 }

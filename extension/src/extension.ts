@@ -160,6 +160,8 @@ async function showQR(qr: PairingQR | null, tunnelName?: string) {
   qrPanel = vscode.window.createWebviewPanel('remotedev.qr', 'RemoteDev — Pair', vscode.ViewColumn.Two, { enableScripts: false });
   qrPanel.onDidDispose(() => qrPanel = null);
   const dataUrl = await QRCode.toDataURL(JSON.stringify(qr), { errorCorrectionLevel: 'M', margin: 1, scale: 6 });
+  const payload = JSON.stringify(qr);
+  const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   qrPanel.webview.html = `
     <html><body style="font-family:system-ui;background:#0e0e10;color:#fff;display:flex;flex-direction:column;align-items:center;padding:24px">
       <h2>Scan with the PocketCode app</h2>
@@ -171,6 +173,10 @@ async function showQR(qr: PairingQR | null, tunnelName?: string) {
         Expires: ${new Date(qr.exp).toLocaleString()}
       </p>
       <p style="opacity:.5;margin-top:24px">Token is shown ONCE. Pairing binds this device until you Disconnect All.</p>
+      <details style="max-width:640px;margin-top:12px">
+        <summary>Camera not scanning? Copy the manual pairing text.</summary>
+        <pre style="white-space:pre-wrap;word-break:break-all;user-select:all;background:#1d1d20;padding:12px;border-radius:8px">${escapeHtml(payload)}</pre>
+      </details>
     </body></html>`;
 }
 
